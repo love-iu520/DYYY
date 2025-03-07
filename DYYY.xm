@@ -1057,7 +1057,10 @@
 
         if (nextAwemeType == 101 && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLive"]) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                [self.tableView setContentOffset:CGPointMake(0, (currentIndex + 2) * self.tableView.frame.size.height) animated:YES];
+                UITableView *tableView = [self valueForKey:@"tableView"];
+if (tableView && [tableView isKindOfClass:[UITableView class]]) {
+    [tableView setContentOffset:CGPointMake(0, (currentIndex + 2) * tableView.frame.size.height) animated:YES];
+}
             });
         } else {
             dispatch_async(dispatch_get_main_queue(), ^{
