@@ -1055,20 +1055,25 @@
     UITableView *tableView = [self valueForKey:@"tableView"];
 
     if (tableView && [tableView isKindOfClass:[UITableView class]]) {
-        if (currentIndex + 1 < dataArray.count) {
-            id nextAweme = dataArray[currentIndex + 1];
+        NSInteger nextIndex = currentIndex + 1;
+        while (nextIndex < dataArray.count) {
+            id nextAweme = dataArray[nextIndex];
             NSInteger nextAwemeType = [[nextAweme valueForKey:@"awemeType"] integerValue];
+            NSInteger diggCount = [[nextAweme valueForKey:@"statistics"] integerValueForKey:@"diggCount"];
 
-            if (nextAwemeType == 101 && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLive"]) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [tableView setContentOffset:CGPointMake(0, (currentIndex + 2) * tableView.frame.size.height) animated:YES];
-                });
+            BOOL shouldSkipLive = (nextAwemeType == 101 && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLive"]);
+            BOOL shouldSkipLowDigg = (diggCount < 500);
+
+            if (shouldSkipLive || shouldSkipLowDigg) {
+                nextIndex += 1;  // 满足条件则继续跳过
             } else {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [tableView setContentOffset:CGPointMake(0, (currentIndex + 1) * tableView.frame.size.height) animated:YES];
-                });
+                break; // 找到合适的视频，跳出循环
             }
         }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [tableView setContentOffset:CGPointMake(0, nextIndex * tableView.frame.size.height) animated:YES];
+        });
     }
 }
 
