@@ -1059,15 +1059,13 @@
         while (nextIndex < dataArray.count) {
             id nextAweme = dataArray[nextIndex];
             NSInteger nextAwemeType = [[nextAweme valueForKey:@"awemeType"] integerValue];
-            NSInteger diggCount = [[nextAweme valueForKey:@"statistics"] integerValueForKey:@"diggCount"];
+            NSInteger diggCount = [[nextAweme valueForKeyPath:@"statistics.diggCount"] integerValue];
 
-            BOOL shouldSkipLive = (nextAwemeType == 101 && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLive"]);
-            BOOL shouldSkipLowDigg = (diggCount < 500);
-
-            if (shouldSkipLive || shouldSkipLowDigg) {
+            if ((nextAwemeType == 101 && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLive"]) ||
+                (diggCount < 500)) {
                 nextIndex += 1;  // 满足条件则继续跳过
             } else {
-                break; // 找到合适的视频，跳出循环
+                break;  // 找到合适的视频，跳出循环
             }
         }
 
