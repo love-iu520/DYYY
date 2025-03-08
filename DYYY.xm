@@ -114,6 +114,9 @@
 - (void)scrollToNextVideo;
 @end
 
+@interface AWEFeedTableView : UIView
+@end
+
 %hook AWEAwemePlayVideoViewController
 
 - (void)setIsAutoPlay:(BOOL)arg0 {
@@ -395,7 +398,15 @@
 }
 %end
 
+%hook AWEFeedLiveMarkView
+- (void)setHidden:(BOOL)hidden {
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideAvatarButton"]) {
+        hidden = YES;
+    }
 
+    %orig(hidden);
+}
+%end
 
 %hook AWELongVideoControlModel
 - (bool)allowDownload {
@@ -421,6 +432,17 @@
 
 
 
+%hook AWEFeedTableView
+- (void)layoutSubviews {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisEnableFullScreen"]) {
+        CGRect frame = self.frame;
+        frame.size.height = self.superview.frame.size.height;
+        self.frame = frame;
+    }
+}
+%end
+
 %hook UIView
 
 - (void)setAlpha:(CGFloat)alpha {
@@ -434,6 +456,13 @@
                 %orig(alphaValue);
                 return;
             }
+        }
+    }
+    if ([vc isKindOfClass:%c(AWEPlayInteractionViewController)] && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisEnableFullScreen"]) {
+        CGRect frame = vc.view.frame;
+        if (frame.size.height == vc.view.superview.frame.size.height) {
+            frame.size.height -= 83;
+            vc.view.frame = frame;
         }
     }
     %orig;
@@ -644,7 +673,7 @@
         button.frame = CGRectMake(i * buttonWidth, button.frame.origin.y, buttonWidth, button.frame.size.height);
     }
 
-    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisHiddenBottomBg"]) {
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisHiddenBottomBg"] || [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisEnableFullScreen"]) {
         for (UIView *subview in self.subviews) {
             if ([subview class] == [UIView class]) {
                 BOOL hasImageView = NO;
@@ -1044,66 +1073,6 @@
 
 %hook AWEFeedTableViewController
 
-- (void)checkAndSkipLowLikes {
-    NSArray *dataArray = [self valueForKey:@"awemeList"];
-    NSInteger currentIndex = [[self valueForKey:@"currentIndex"] integerValue];
-    UITableView *tableView = [self valueForKey:@"tableView"];
-
-    if (tableView && [tableView isKindOfClass:[UITableView class]]) {
-        NSInteger nextIndex = currentIndex + 1;
-
-        while (nextIndex < dataArray.count) {
-            id nextAweme = dataArray[nextIndex];
-            NSDictionary *statistics = [nextAweme valueForKey:@"statistics"];
-            NSInteger diggCount = [[statistics objectForKey:@"diggCount"] integerValue];
-
-            if (diggCount < 500) {
-                nextIndex += 1;  // 继续跳过
-            } else {
-                break;  // 找到符合条件的视频
-            }
-        }
-
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [tableView setContentOffset:CGPointMake(0, nextIndex * tableView.frame.size.height) animated:YES];
-        });
-    }
-}
-
-
-- (void)checkAndSkipLowLikes {
-    NSArray *dataArray = [self valueForKey:@"awemeList"];
-    NSInteger currentIndex = [[self valueForKey:@"currentIndex"] integerValue];
-    UITableView *tableView = [self valueForKey:@"tableView"];
-
-    if (tableView && [tableView isKindOfClass:[UITableView class]]) {
-        NSInteger nextIndex = currentIndex + 1;
-
-        while (nextIndex < dataArray.count) {
-            id nextAweme = dataArray[nextIndex];
-            
-            NSDictionary *statistics = [nextAweme valueForKey:@"statistics"];
-            NSInteger diggCount = [[statistics objectForKey:@"diggCount"] integerValue];
-
-            if (diggCount < 500) {
-                nextIndex += 1;  // 点赞数低于500则继续跳过
-            } else {
-                break;  // 找到点赞数足够的视频
-            }
-        }
-
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [tableView setContentOffset:CGPointMake(0, nextIndex * tableView.frame.size.height) animated:YES];
-        });
-    }
-}
-
-
-    %orig;
-    [self checkAndSkipLowLikes]; // 明确直接调用，确保点赞逻辑执行
-}
-
-
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(checkAndSkipLive) name:@"DYYYCheckNextAweme" object:nil];
@@ -1142,7 +1111,6 @@
 %hook AWEFeedLiveMarkView
 
 - (void)didMoveToWindow {
-    [[NSNotificationCenter defaultCenter] postNotificationName:@"DYYYCheckNextAwemeLikes" object:nil];
     %orig;
 
     if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLive"]) {
