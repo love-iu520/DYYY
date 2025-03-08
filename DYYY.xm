@@ -117,6 +117,13 @@
 @interface AWEFeedTableView : UIView
 @end
 
+
+%ctor {
+    // 注册默认设置：跳过点赞数低于500的视频默认开启
+    NSDictionary *defaultSettings = @{@"DYYYisSkipLowLike": @YES};
+    [[NSUserDefaults standardUserDefaults] registerDefaults:defaultSettings];
+}
+
 %hook AWEAwemePlayVideoViewController
 
 - (void)setIsAutoPlay:(BOOL)arg0 {
@@ -1071,34 +1078,82 @@
 //}
 
 
+
 %hook AWEFeedTableViewController
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(checkAndSkipLive) name:@"DYYYCheckNextAweme" object:nil];
+    // 监听通知，收到后调用 checkAndSkip 方法进行视频跳过检查
+    [[NSNotificationCenter defaultCenter] addObserver:self 
+                                             selector:@selector(checkAndSkip) 
+                                                 name:@"DYYYCheckNextAweme" 
+                                               object:nil];
 }
 
-- (void)checkAndSkipLive {
+/**
+ * 主检查函数：依次跳过直播视频和点赞数低于500的视频，
+ * 最终滚动到下一个既不是直播且点赞数大于等于500的视频位置。
+ */
+- (void)checkAndSkip {
     NSArray *dataArray = [self valueForKey:@"awemeList"];
     NSInteger currentIndex = [[self valueForKey:@"currentIndex"] integerValue];
     UITableView *tableView = [self valueForKey:@"tableView"];
+    
+    if (!tableView || ![tableView isKindOfClass:[UITableView class]]) return;
+    
+    // 从当前索引开始累计跳过不符合条件的视频
+    NSInteger newIndex = currentIndex;
+    
+    // 先跳过直播视频（如果启用了跳过直播功能）
+    newIndex = [self skipLiveVideosFromIndex:newIndex];
+    
+    // 再跳过点赞数低于500的视频（如果启用了跳过低点赞功能）
+    newIndex = [self skipLowLikeVideosFromIndex:newIndex];
+    
+    // 最终滚动到新索引的下一个视频位置（newIndex+1）
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [tableView setContentOffset:CGPointMake(0, (newIndex + 1) * tableView.frame.size.height) animated:YES];
+    });
+}
 
-    if (tableView && [tableView isKindOfClass:[UITableView class]]) {
-        if (currentIndex + 1 < dataArray.count) {
-            id nextAweme = dataArray[currentIndex + 1];
-            NSInteger nextAwemeType = [[nextAweme valueForKey:@"awemeType"] integerValue];
-
-            if (nextAwemeType == 101 && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLive"]) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [tableView setContentOffset:CGPointMake(0, (currentIndex + 2) * tableView.frame.size.height) animated:YES];
-                });
-            } else {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [tableView setContentOffset:CGPointMake(0, (currentIndex + 1) * tableView.frame.size.height) animated:YES];
-                });
-            }
+/**
+ * 跳过直播视频的函数
+ * 从给定的索引开始，检查后续视频，
+ * 如果下一个视频为直播（awemeType == 101）且用户启用了跳过直播功能，则累加索引，
+ * 返回最终的索引。
+ */
+- (NSInteger)skipLiveVideosFromIndex:(NSInteger)index {
+    NSArray *dataArray = [self valueForKey:@"awemeList"];
+    while (index + 1 < dataArray.count) {
+        id nextAweme = dataArray[index + 1];
+        NSInteger nextAwemeType = [[nextAweme valueForKey:@"awemeType"] integerValue];
+        if (nextAwemeType == 101 && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLive"]) {
+            index++;
+        } else {
+            break;
         }
     }
+    return index;
+}
+
+/**
+ * 跳过点赞数低于500的视频的函数
+ * 从给定的索引开始，检查后续视频，
+ * 如果下一个视频的点赞数（digg_count）低于500且用户启用了跳过低点赞功能，则累加索引，
+ * 返回最终的索引。
+ */
+- (NSInteger)skipLowLikeVideosFromIndex:(NSInteger)index {
+    NSArray *dataArray = [self valueForKey:@"awemeList"];
+    while (index + 1 < dataArray.count) {
+        id nextAweme = dataArray[index + 1];
+        NSInteger nextAwemeLikeCount = [[[nextAweme valueForKey:@"statistics"] valueForKey:@"digg_count"] integerValue];
+        if (nextAwemeLikeCount < 500 && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLowLike"]) {
+            index++;
+        } else {
+            break;
+        }
+    }
+    return index;
 }
 
 - (void)dealloc {
@@ -1112,10 +1167,9 @@
 
 - (void)didMoveToWindow {
     %orig;
-
-    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLive"]) {
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"DYYYCheckNextAweme" object:nil];
-    }
+    // 当直播标识视图被添加到窗口时，发送通知触发视频跳过检查
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"DYYYCheckNextAweme" object:nil];
 }
 
 %end
+
