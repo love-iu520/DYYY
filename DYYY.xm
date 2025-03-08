@@ -1079,32 +1079,40 @@
 }
 
 - (void)checkAndSkipLive {
-    NSArray *dataArray = [self valueForKey:@"awemeList"];
+    NSArray *dataArray = [self valueForKey:@"awemeList"]; // 确保 awemeList 实际对应 aweme_list
     NSInteger currentIndex = [[self valueForKey:@"currentIndex"] integerValue];
     UITableView *tableView = [self valueForKey:@"tableView"];
 
-    if (tableView && [tableView isKindOfClass:[UITableView class]]) {
-        while (currentIndex + 1 < dataArray.count) { // 这里使用 while 循环，确保连续跳过多个不符合条件的视频
-            id nextAweme = dataArray[currentIndex + 1];
-            NSInteger nextAwemeType = [[nextAweme valueForKey:@"awemeType"] integerValue];
-            NSInteger nextAwemeLikeCount = [[[nextAweme valueForKey:@"statistics"] valueForKey:@"digg_count"] integerValue];
+    if (tableView && [tableView isKindOfClass:[UITableView class]] && dataArray.count > 0) {
+        while (currentIndex + 1 < dataArray.count) {
+            id nextAweme = dataArray[currentIndex + 1]; // 访问 aweme_list 里的单个对象
+            
+            // 确保 statistics 存在
+            NSDictionary *statistics = [nextAweme valueForKey:@"statistics"];
+            NSNumber *likeCountNumber = [statistics valueForKey:@"digg_count"];
+            NSInteger nextAwemeLikeCount = likeCountNumber ? [likeCountNumber integerValue] : 0;
 
-            // 判断是否是直播 或者 点赞数低于500
+            NSInteger nextAwemeType = [[nextAweme valueForKey:@"awemeType"] integerValue];
+
+            NSLog(@"检测视频: 类型=%ld, 点赞=%ld", (long)nextAwemeType, (long)nextAwemeLikeCount);
+
             if ((nextAwemeType == 101 && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLive"]) ||
                 (nextAwemeLikeCount < 500 && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLowLike"])) {
-                currentIndex++; // 跳过当前视频，继续检查下一个
+                currentIndex++;
+                [self setValue:@(currentIndex) forKey:@"currentIndex"];
             } else {
-                break; // 找到符合条件的视频，停止跳过
+                break;
             }
         }
 
-        // 滑动到符合条件的视频
         dispatch_async(dispatch_get_main_queue(), ^{
-            [tableView setContentOffset:CGPointMake(0, (currentIndex + 1) * tableView.frame.size.height) animated:YES];
+            NSIndexPath *indexPath = [NSIndexPath indexPathForRow:(currentIndex + 1) inSection:0];
+            if ([tableView numberOfRowsInSection:0] > indexPath.row) {
+                [tableView scrollToRowAtIndexPath:indexPath atScrollPosition:UITableViewScrollPositionTop animated:YES];
+            }
         });
     }
 }
-
 
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self name:@"DYYYCheckNextAweme" object:nil];
