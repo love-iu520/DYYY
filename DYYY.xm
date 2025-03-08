@@ -1070,7 +1070,6 @@
 //    });
 //}
 
-
 %hook AWEFeedTableViewController
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -1079,36 +1078,40 @@
 }
 
 - (void)checkAndSkipLive {
-    NSArray *dataArray = [self valueForKey:@"awemeList"]; // 确保 awemeList 实际对应 aweme_list
+    NSArray *dataArray = [self valueForKey:@"awemeList"];
     NSInteger currentIndex = [[self valueForKey:@"currentIndex"] integerValue];
     UITableView *tableView = [self valueForKey:@"tableView"];
+    BOOL hasSkipped = NO;
 
-    if (tableView && [tableView isKindOfClass:[UITableView class]] && dataArray.count > 0) {
-        while (currentIndex + 1 < dataArray.count) {
-            id nextAweme = dataArray[currentIndex + 1]; // 访问 aweme_list 里的单个对象
-            
-            // 确保 statistics 存在
-            NSDictionary *statistics = [nextAweme valueForKey:@"statistics"];
-            NSNumber *likeCountNumber = [statistics valueForKey:@"digg_count"];
-            NSInteger nextAwemeLikeCount = likeCountNumber ? [likeCountNumber integerValue] : 0;
+    if (!tableView || !dataArray || dataArray.count == 0) return;
 
-            NSInteger nextAwemeType = [[nextAweme valueForKey:@"awemeType"] integerValue];
+    // 循环跳过连续无效视频
+    while (currentIndex + 1 < dataArray.count) {
+        id nextAweme = dataArray[currentIndex + 1];
+        NSInteger nextAwemeType = [[nextAweme valueForKey:@"awemeType"] integerValue];
+        
+        NSDictionary *statistics = [nextAweme valueForKey:@"statistics"];
+        NSNumber *likeCountNumber = [statistics valueForKey:@"digg_count"];
+        NSInteger nextAwemeLikeCount = likeCountNumber ? [likeCountNumber integerValue] : 0;
+        if (!statistics || !likeCountNumber) nextAwemeLikeCount = 0;
 
-            NSLog(@"检测视频: 类型=%ld, 点赞=%ld", (long)nextAwemeType, (long)nextAwemeLikeCount);
+        BOOL shouldSkip = (nextAwemeType == 101 || nextAwemeLikeCount < 500);
+        if (!shouldSkip) break;
 
-            if ((nextAwemeType == 101 && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLive"]) ||
-                nextAwemeLikeCount < 500 ) {
-                currentIndex++;
-                [self setValue:@(currentIndex) forKey:@"currentIndex"];
-            } else {
-                break;
-            }
-        }
+        currentIndex++;
+        hasSkipped = YES;
+        NSLog(@"🚫 跳过视频: 类型=%ld, 点赞=%ld", nextAwemeType, nextAwemeLikeCount);
+    }
 
+    // 更新索引并滚动
+    if (hasSkipped) {
+        [self setValue:@(currentIndex) forKey:@"currentIndex"];
         dispatch_async(dispatch_get_main_queue(), ^{
-            NSIndexPath *indexPath = [NSIndexPath indexPathForRow:(currentIndex + 1) inSection:0];
-            if ([tableView numberOfRowsInSection:0] > indexPath.row) {
+            NSIndexPath *indexPath = [NSIndexPath indexPathForRow:currentIndex inSection:0];
+            if (indexPath.row < [tableView numberOfRowsInSection:0]) {
+                [tableView reloadData];
                 [tableView scrollToRowAtIndexPath:indexPath atScrollPosition:UITableViewScrollPositionTop animated:YES];
+                NSLog(@"✅ 最终定位到索引: %ld", (long)currentIndex);
             }
         });
     }
@@ -1121,14 +1124,11 @@
 
 %end
 
-%hook AWEFeedLiveMarkView
+%hook AWEFeedTableView
 
-- (void)didMoveToWindow {
+- (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView {
     %orig;
-
-    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLive"]) {
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"DYYYCheckNextAweme" object:nil];
-    }
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"DYYYCheckNextAweme" object:nil];
 }
 
 %end
