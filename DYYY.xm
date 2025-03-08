@@ -1097,7 +1097,7 @@
             NSLog(@"检测视频: 类型=%ld, 点赞=%ld", (long)nextAwemeType, (long)nextAwemeLikeCount);
 
             if ((nextAwemeType == 101 && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLive"]) ||
-                (nextAwemeLikeCount < 500 && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisSkipLowLike"])) {
+                nextAwemeLikeCount < 500 ) {
                 currentIndex++;
                 [self setValue:@(currentIndex) forKey:@"currentIndex"];
             } else {
