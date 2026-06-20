@@ -250,34 +250,7 @@ static void DYYYRefreshSearchItemValue(AWESettingItemModel *item) {
 }
 
 static BOOL DYYYSettingsUsesDouyinLightBackground(void) {
-    Class themeManagerClass = NSClassFromString(@"AWEUIThemeManager");
-    SEL isLightThemeSEL = NSSelectorFromString(@"isLightTheme");
-    if (themeManagerClass && [themeManagerClass respondsToSelector:isLightThemeSEL]) {
-        return ((BOOL (*)(Class, SEL))objc_msgSend)(themeManagerClass, isLightThemeSEL);
-    }
-
-    id themeManager = nil;
-    SEL sharedManagerSEL = NSSelectorFromString(@"sharedManager");
-    SEL sharedInstanceSEL = NSSelectorFromString(@"sharedInstance");
-    if (themeManagerClass && [themeManagerClass respondsToSelector:sharedManagerSEL]) {
-        themeManager = ((id (*)(Class, SEL))objc_msgSend)(themeManagerClass, sharedManagerSEL);
-    } else if (themeManagerClass && [themeManagerClass respondsToSelector:sharedInstanceSEL]) {
-        themeManager = ((id (*)(Class, SEL))objc_msgSend)(themeManagerClass, sharedInstanceSEL);
-    }
-
-    if (themeManager && [themeManager respondsToSelector:isLightThemeSEL]) {
-        return ((BOOL (*)(id, SEL))objc_msgSend)(themeManager, isLightThemeSEL);
-    }
-
-    @try {
-        id lightThemeValue = [themeManager valueForKey:@"isLightTheme"];
-        if ([lightThemeValue respondsToSelector:@selector(boolValue)]) {
-            return [lightThemeValue boolValue];
-        }
-    } @catch (NSException *exception) {
-    }
-
-    return ![DYYYUtils isDarkMode];
+    return [DYYYUtils usesDouyinLightBackground];
 }
 
 static UIColor *DYYYSettingsColorFromARGB(NSUInteger argb) {

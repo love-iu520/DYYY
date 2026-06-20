@@ -900,40 +900,46 @@ static void DYYYApplyDisplayLocationToLabel(UILabel *label, NSString *displayLoc
     }
 }
 
-+ (BOOL)isDarkMode {
++ (BOOL)usesDouyinLightBackground {
     Class themeManagerClass = NSClassFromString(@"AWEUIThemeManager");
-    if (!themeManagerClass) {
-        return NO;
-    }
-
     SEL isLightThemeSEL = NSSelectorFromString(@"isLightTheme");
-    if ([themeManagerClass respondsToSelector:isLightThemeSEL]) {
-        BOOL isLightTheme = ((BOOL (*)(id, SEL))objc_msgSend)(themeManagerClass, isLightThemeSEL);
-        return !isLightTheme;
+    if (themeManagerClass && [themeManagerClass respondsToSelector:isLightThemeSEL]) {
+        return ((BOOL (*)(id, SEL))objc_msgSend)(themeManagerClass, isLightThemeSEL);
     }
 
     id themeManager = nil;
     SEL sharedManagerSEL = NSSelectorFromString(@"sharedManager");
     SEL sharedInstanceSEL = NSSelectorFromString(@"sharedInstance");
-    if ([themeManagerClass respondsToSelector:sharedManagerSEL]) {
+    if (themeManagerClass && [themeManagerClass respondsToSelector:sharedManagerSEL]) {
         themeManager = [themeManagerClass performSelector:sharedManagerSEL];
-    } else if ([themeManagerClass respondsToSelector:sharedInstanceSEL]) {
+    } else if (themeManagerClass && [themeManagerClass respondsToSelector:sharedInstanceSEL]) {
         themeManager = [themeManagerClass performSelector:sharedInstanceSEL];
     }
 
     if (themeManager) {
         if ([themeManager respondsToSelector:isLightThemeSEL]) {
-            BOOL isLightTheme = ((BOOL (*)(id, SEL))objc_msgSend)(themeManager, isLightThemeSEL);
-            return !isLightTheme;
+            return ((BOOL (*)(id, SEL))objc_msgSend)(themeManager, isLightThemeSEL);
         }
 
         @try {
             id lightThemeValue = [themeManager valueForKey:@"isLightTheme"];
             if ([lightThemeValue respondsToSelector:@selector(boolValue)]) {
-                return ![lightThemeValue boolValue];
+                return [lightThemeValue boolValue];
             }
         } @catch (NSException *exception) {
         }
+    }
+
+    if (@available(iOS 13.0, *)) {
+        return [UIScreen mainScreen].traitCollection.userInterfaceStyle != UIUserInterfaceStyleDark;
+    }
+
+    return YES;
+}
+
++ (BOOL)isDarkMode {
+    if (![self usesDouyinLightBackground]) {
+        return YES;
     }
 
     return NO;

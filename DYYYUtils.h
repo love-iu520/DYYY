@@ -85,6 +85,11 @@ NS_ASSUME_NONNULL_BEGIN
  */
 + (BOOL)isDarkMode;
 
+/**
+ * 检查当前抖音背景设置是否为浅色
+ */
++ (BOOL)usesDouyinLightBackground;
+
 #pragma mark - Public File Management (公共文件管理)
 
 /**格式化大小
