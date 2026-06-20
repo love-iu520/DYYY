@@ -6224,6 +6224,613 @@ static void DYYYApplyAvatarFollowPromptSettingsWithRetry(id owner) {
 }
 %end
 
+static const void *kDYYYLiveDurationViewKey = &kDYYYLiveDurationViewKey;
+static const void *kDYYYLiveDurationTimerKey = &kDYYYLiveDurationTimerKey;
+static const void *kDYYYLiveDurationRoomKey = &kDYYYLiveDurationRoomKey;
+
+@interface DYYYLiveDurationWeakViewBox : NSObject
+@property(nonatomic, weak) UIView *view;
+@end
+
+@implementation DYYYLiveDurationWeakViewBox
+@end
+
+@interface DYYYLiveDurationView : UIView
+@property(nonatomic, strong) UILabel *durationLabel;
+@end
+
+@implementation DYYYLiveDurationView
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.userInteractionEnabled = NO;
+        self.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.42];
+        self.layer.cornerRadius = 7.0;
+        self.layer.masksToBounds = YES;
+        self.layer.borderColor = [[UIColor whiteColor] colorWithAlphaComponent:0.12].CGColor;
+        self.layer.borderWidth = 0.5;
+        self.accessibilityIdentifier = @"dyyy_live_duration_view";
+
+        _durationLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        _durationLabel.textColor = [UIColor whiteColor];
+        _durationLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
+        _durationLabel.textAlignment = NSTextAlignmentCenter;
+        _durationLabel.adjustsFontSizeToFitWidth = YES;
+        _durationLabel.minimumScaleFactor = 0.75;
+        _durationLabel.shadowColor = [[UIColor blackColor] colorWithAlphaComponent:0.75];
+        _durationLabel.shadowOffset = CGSizeMake(0.0, 1.0);
+        [self addSubview:_durationLabel];
+    }
+    return self;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    self.durationLabel.frame = CGRectInset(self.bounds, 7.0, 2.0);
+}
+
+@end
+
+static id DYYYLiveDurationSafeValue(id obj, NSString *key) {
+    if (!obj || key.length == 0) {
+        return nil;
+    }
+
+    @try {
+        return [obj valueForKey:key];
+    } @catch (__unused NSException *exception) {
+        return nil;
+    }
+}
+
+static long long DYYYLiveDurationLongValue(id obj, NSString *key) {
+    id value = DYYYLiveDurationSafeValue(obj, key);
+    return [value respondsToSelector:@selector(longLongValue)] ? [value longLongValue] : 0;
+}
+
+static BOOL DYYYLiveDurationBoolValue(id obj, NSString *key) {
+    id value = DYYYLiveDurationSafeValue(obj, key);
+    return [value respondsToSelector:@selector(boolValue)] ? [value boolValue] : NO;
+}
+
+static NSTimeInterval DYYYLiveDurationNowSeconds(void) {
+    return [[NSDate date] timeIntervalSince1970];
+}
+
+static NSTimeInterval DYYYLiveDurationNormalizeTimestamp(long long timestamp) {
+    if (timestamp <= 0) {
+        return 0.0;
+    }
+    return timestamp > 20000000000LL ? ((NSTimeInterval)timestamp / 1000.0) : (NSTimeInterval)timestamp;
+}
+
+static long long DYYYLiveDurationFirstPositiveValue(id obj, NSArray<NSString *> *keys) {
+    for (NSString *key in keys) {
+        long long value = DYYYLiveDurationLongValue(obj, key);
+        if (value > 0) {
+            return value;
+        }
+    }
+    return 0;
+}
+
+static BOOL DYYYLiveDurationLooksLikeRoomObject(id obj) {
+    if (!obj) {
+        return NO;
+    }
+
+    NSString *className = NSStringFromClass([obj class]);
+    NSArray<NSString *> *excludedParts = @[ @"Cell", @"Item", @"Aisle", @"Context", @"Config", @"Controller", @"View", @"Factory" ];
+    for (NSString *part in excludedParts) {
+        if ([className rangeOfString:part options:NSCaseInsensitiveSearch].location != NSNotFound) {
+            return NO;
+        }
+    }
+
+    if ([className rangeOfString:@"LiveRoom" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [className rangeOfString:@"RoomModel" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [className rangeOfString:@"WebcastRoom" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        return YES;
+    }
+
+    return DYYYLiveDurationSafeValue(obj, @"roomID") || DYYYLiveDurationSafeValue(obj, @"idStr");
+}
+
+static NSTimeInterval DYYYLiveDurationElapsedSeconds(id roomModel) {
+    if (!DYYYLiveDurationLooksLikeRoomObject(roomModel)) {
+        return -1.0;
+    }
+
+    id rawRoom = DYYYLiveDurationSafeValue(roomModel, @"rawRoom") ?: roomModel;
+    NSArray<NSString *> *startKeys = @[ @"startTime", @"createTime", @"liveStartTime", @"start_time", @"create_time" ];
+    long long startTime = DYYYLiveDurationFirstPositiveValue(rawRoom, startKeys);
+    if (startTime <= 0) {
+        startTime = DYYYLiveDurationFirstPositiveValue(roomModel, startKeys);
+    }
+
+    NSTimeInterval timestamp = DYYYLiveDurationNormalizeTimestamp(startTime);
+    NSTimeInterval now = DYYYLiveDurationNowSeconds();
+    if (timestamp > 1000000000.0 && timestamp <= now + 3600.0) {
+        return fmax(0.0, now - timestamp);
+    }
+
+    NSArray<NSString *> *durationKeys = @[ @"liveDuration", @"liveTime", @"duration", @"totalDuration" ];
+    long long duration = DYYYLiveDurationFirstPositiveValue(rawRoom, durationKeys);
+    if (duration <= 0) {
+        duration = DYYYLiveDurationFirstPositiveValue(roomModel, durationKeys);
+    }
+    if (duration > 0 && duration < 365LL * 24LL * 3600LL) {
+        return (NSTimeInterval)duration;
+    }
+
+    return -1.0;
+}
+
+static BOOL DYYYLiveDurationHasValidLiveTime(id obj) {
+    return DYYYLiveDurationElapsedSeconds(obj) >= 0.0;
+}
+
+static id DYYYLiveDurationRoomFromCarrierDepth(id obj, NSUInteger depth);
+
+static id DYYYLiveDurationRoomFromKnownKeys(id obj, NSUInteger depth) {
+    if (!obj || depth > 3) {
+        return nil;
+    }
+
+    NSArray<NSString *> *keys = @[
+        @"rawHTSLiveRoomModel", @"rawDataRoomModel", @"roomModel", @"rawRoom", @"liveRoom", @"room", @"currentRoom",
+        @"containerContext", @"roomDI", @"roomConfig", @"roomAisle"
+    ];
+    for (NSString *key in keys) {
+        id value = DYYYLiveDurationSafeValue(obj, key);
+        if (DYYYLiveDurationHasValidLiveTime(value)) {
+            return value;
+        }
+
+        id nestedRawRoom = DYYYLiveDurationSafeValue(value, @"rawRoom");
+        if (DYYYLiveDurationHasValidLiveTime(nestedRawRoom)) {
+            return value;
+        }
+
+        id nestedRoom = DYYYLiveDurationRoomFromCarrierDepth(value, depth + 1);
+        if (nestedRoom) {
+            return nestedRoom;
+        }
+    }
+    return nil;
+}
+
+static id DYYYLiveDurationRoomFromCarrierDepth(id obj, NSUInteger depth) {
+    if (!obj || depth > 3) {
+        return nil;
+    }
+
+    if (DYYYLiveDurationHasValidLiveTime(obj)) {
+        return obj;
+    }
+
+    id room = DYYYLiveDurationRoomFromKnownKeys(obj, depth + 1);
+    if (room) {
+        return room;
+    }
+
+    if ([obj respondsToSelector:@selector(liveRoomModel)]) {
+        @try {
+            id value = ((id (*)(id, SEL))objc_msgSend)(obj, @selector(liveRoomModel));
+            if (DYYYLiveDurationHasValidLiveTime(value)) {
+                return value;
+            }
+        } @catch (__unused NSException *exception) {
+        }
+    }
+
+    NSArray<NSString *> *carrierKeys = @[ @"itemModel", @"awemeModel", @"aweme", @"model", @"item" ];
+    for (NSString *key in carrierKeys) {
+        id carrier = DYYYLiveDurationSafeValue(obj, key);
+        room = DYYYLiveDurationRoomFromCarrierDepth(carrier, depth + 1);
+        if (room) {
+            return room;
+        }
+    }
+
+    return nil;
+}
+
+static id DYYYLiveDurationRoomFromCarrier(id obj) {
+    return DYYYLiveDurationRoomFromCarrierDepth(obj, 0);
+}
+
+static NSString *DYYYLiveDurationFormatElapsed(NSTimeInterval seconds) {
+    long long totalSeconds = (long long)fmax(0.0, floor(seconds));
+    long long days = totalSeconds / 86400;
+    long long hours = (totalSeconds % 86400) / 3600;
+    long long minutes = (totalSeconds % 3600) / 60;
+    long long secs = totalSeconds % 60;
+
+    if (days > 0) {
+        return [NSString stringWithFormat:@"已开播 %lld天%02lld:%02lld:%02lld", days, hours, minutes, secs];
+    }
+    return [NSString stringWithFormat:@"已开播 %02lld:%02lld:%02lld", hours, minutes, secs];
+}
+
+static DYYYLiveDurationView *DYYYLiveDurationEnsureView(UIView *root) {
+    DYYYLiveDurationView *durationView = objc_getAssociatedObject(root, kDYYYLiveDurationViewKey);
+    if (durationView && durationView.superview == root) {
+        return durationView;
+    }
+
+    durationView = [[DYYYLiveDurationView alloc] initWithFrame:CGRectZero];
+    objc_setAssociatedObject(root, kDYYYLiveDurationViewKey, durationView, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [root addSubview:durationView];
+    return durationView;
+}
+
+static CGRect DYYYLiveDurationFrameForRoot(UIView *root, id roomModel, NSString *text) {
+    UIEdgeInsets safeInsets = UIEdgeInsetsZero;
+    if ([root respondsToSelector:@selector(safeAreaInsets)]) {
+        safeInsets = root.safeAreaInsets;
+    }
+
+    CGFloat rootWidth = CGRectGetWidth(root.bounds);
+    CGFloat rootHeight = CGRectGetHeight(root.bounds);
+    BOOL isLandscape = rootWidth > rootHeight || DYYYLiveDurationBoolValue(roomModel, @"isLandscape");
+    if (!isLandscape) {
+        long long orientation = DYYYLiveDurationLongValue(roomModel, @"orientation");
+        isLandscape = orientation == 2 || orientation == 90 || orientation == 270;
+    }
+
+    UIFont *font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
+    CGSize textSize = [text ?: @"已开播 00:00:00" sizeWithAttributes:@{NSFontAttributeName : font}];
+    CGFloat width = fmin(ceil(fmax(textSize.width + 18.0, 118.0)), isLandscape ? 190.0 : 170.0);
+    CGFloat height = 26.0;
+
+    CGFloat minX = safeInsets.left + 4.0;
+    CGFloat maxX = fmax(minX, rootWidth - safeInsets.right - width - 4.0);
+    CGFloat minY = safeInsets.top + 4.0;
+    CGFloat maxY = fmax(minY, rootHeight - safeInsets.bottom - height - 4.0);
+
+    CGFloat x = fmin(fmax(safeInsets.left + 12.0, minX), maxX);
+    CGFloat y = fmin(fmax(safeInsets.top + (isLandscape ? 12.0 : 86.0), minY), maxY);
+    return CGRectIntegral(CGRectMake(x, y, width, height));
+}
+
+static void DYYYLiveDurationRemoveFromView(UIView *root) {
+    if (!root) {
+        return;
+    }
+
+    NSTimer *timer = objc_getAssociatedObject(root, kDYYYLiveDurationTimerKey);
+    [timer invalidate];
+    objc_setAssociatedObject(root, kDYYYLiveDurationTimerKey, nil, OBJC_ASSOCIATION_ASSIGN);
+
+    UIView *durationView = objc_getAssociatedObject(root, kDYYYLiveDurationViewKey);
+    [durationView removeFromSuperview];
+    objc_setAssociatedObject(root, kDYYYLiveDurationViewKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(root, kDYYYLiveDurationRoomKey, nil, OBJC_ASSOCIATION_ASSIGN);
+}
+
+static void DYYYLiveDurationUpdateView(UIView *root) {
+    if (!root) {
+        return;
+    }
+
+    if (!DYYYGetBool(@"DYYYShowLiveDuration")) {
+        DYYYLiveDurationRemoveFromView(root);
+        return;
+    }
+
+    id roomModel = objc_getAssociatedObject(root, kDYYYLiveDurationRoomKey);
+    NSTimeInterval elapsed = DYYYLiveDurationElapsedSeconds(roomModel);
+    DYYYLiveDurationView *durationView = objc_getAssociatedObject(root, kDYYYLiveDurationViewKey);
+    if (elapsed < 0.0) {
+        durationView.hidden = YES;
+        return;
+    }
+
+    NSString *text = DYYYLiveDurationFormatElapsed(elapsed);
+    durationView = DYYYLiveDurationEnsureView(root);
+    durationView.durationLabel.text = text;
+    durationView.frame = DYYYLiveDurationFrameForRoot(root, roomModel, text);
+    durationView.hidden = NO;
+    durationView.alpha = 1.0;
+    [root bringSubviewToFront:durationView];
+}
+
+@interface DYYYLiveDurationTicker : NSObject
++ (instancetype)sharedTicker;
+- (void)tick:(NSTimer *)timer;
+@end
+
+@implementation DYYYLiveDurationTicker
+
++ (instancetype)sharedTicker {
+    static DYYYLiveDurationTicker *ticker = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+      ticker = [DYYYLiveDurationTicker new];
+    });
+    return ticker;
+}
+
+- (void)tick:(NSTimer *)timer {
+    DYYYLiveDurationWeakViewBox *box = (DYYYLiveDurationWeakViewBox *)timer.userInfo;
+    UIView *root = box.view;
+    if (![root isKindOfClass:[UIView class]]) {
+        [timer invalidate];
+        return;
+    }
+    if (!root.window) {
+        DYYYLiveDurationRemoveFromView(root);
+        return;
+    }
+    DYYYLiveDurationUpdateView(root);
+}
+
+@end
+
+static void DYYYLiveDurationEnsureTimer(UIView *root) {
+    NSTimer *timer = objc_getAssociatedObject(root, kDYYYLiveDurationTimerKey);
+    if (timer && timer.isValid) {
+        return;
+    }
+
+    DYYYLiveDurationWeakViewBox *box = [DYYYLiveDurationWeakViewBox new];
+    box.view = root;
+    timer = [NSTimer timerWithTimeInterval:1.0 target:[DYYYLiveDurationTicker sharedTicker] selector:@selector(tick:) userInfo:box repeats:YES];
+    [[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
+    objc_setAssociatedObject(root, kDYYYLiveDurationTimerKey, timer, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static void DYYYLiveDurationInstallOnView(UIView *root, id carrier) {
+    if (!root) {
+        return;
+    }
+
+    void (^installBlock)(void) = ^{
+      if (!DYYYGetBool(@"DYYYShowLiveDuration")) {
+          DYYYLiveDurationRemoveFromView(root);
+          return;
+      }
+
+      id room = DYYYLiveDurationRoomFromCarrier(carrier);
+      if (!DYYYLiveDurationHasValidLiveTime(room)) {
+          UIViewController *viewController = [DYYYUtils firstAvailableViewControllerFromView:root];
+          room = DYYYLiveDurationRoomFromCarrier(viewController);
+      }
+
+      if (DYYYLiveDurationHasValidLiveTime(room)) {
+          objc_setAssociatedObject(root, kDYYYLiveDurationRoomKey, room, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+      }
+
+      DYYYLiveDurationUpdateView(root);
+      if (DYYYLiveDurationHasValidLiveTime(objc_getAssociatedObject(root, kDYYYLiveDurationRoomKey))) {
+          DYYYLiveDurationEnsureTimer(root);
+      }
+    };
+
+    if ([NSThread isMainThread]) {
+        installBlock();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), installBlock);
+    }
+}
+
+static UIViewController *DYYYLiveDurationContainerAudienceVC(id container) {
+    UIViewController *viewController = DYYYLiveDurationSafeValue(container, @"audienceVC");
+    if (![viewController isKindOfClass:[UIViewController class]] && [container respondsToSelector:@selector(audienceViewController)]) {
+        @try {
+            viewController = ((id (*)(id, SEL))objc_msgSend)(container, @selector(audienceViewController));
+        } @catch (__unused NSException *exception) {
+            viewController = nil;
+        }
+    }
+    return [viewController isKindOfClass:[UIViewController class]] ? viewController : nil;
+}
+
+static void DYYYLiveDurationInstallFromContainer(id container) {
+    UIViewController *viewController = DYYYLiveDurationContainerAudienceVC(container);
+    if ([viewController isKindOfClass:[UIViewController class]]) {
+        DYYYLiveDurationInstallOnView(viewController.view, DYYYLiveDurationSafeValue(container, @"roomModel") ?: container);
+    }
+}
+
+static void DYYYLiveDurationInstallFromAudienceWrapper(id wrapper) {
+    UIViewController *viewController = DYYYLiveDurationSafeValue(wrapper, @"audienceViewController");
+    if ([viewController isKindOfClass:[UIViewController class]]) {
+        DYYYLiveDurationInstallOnView(viewController.view, DYYYLiveDurationSafeValue(wrapper, @"roomModel") ?: wrapper);
+    }
+}
+
+static void DYYYLiveDurationInstallFromInnerFeedCell(id cell) {
+    UIViewController *viewController = DYYYLiveDurationSafeValue(cell, @"audienceVC");
+    if ([viewController isKindOfClass:[UIViewController class]]) {
+        DYYYLiveDurationInstallOnView(viewController.view, cell);
+    }
+}
+
+%hook AWELiveAudienceContainerController
+
+- (id)initWithRoomModel:(id)roomModel {
+    id result = %orig;
+    __weak id weakResult = result;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+      DYYYLiveDurationInstallFromContainer(weakResult);
+    });
+    return result;
+}
+
+- (id)initWithRoomModel:(id)roomModel config:(id)config {
+    id result = %orig;
+    __weak id weakResult = result;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+      DYYYLiveDurationInstallFromContainer(weakResult);
+    });
+    return result;
+}
+
+- (id)initWithRoomModel:(id)roomModel context:(id)context {
+    id result = %orig;
+    __weak id weakResult = result;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+      DYYYLiveDurationInstallFromContainer(weakResult);
+    });
+    return result;
+}
+
+- (id)initWithRoomModel:(id)roomModel context:(id)context player:(id)player {
+    id result = %orig;
+    __weak id weakResult = result;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+      DYYYLiveDurationInstallFromContainer(weakResult);
+    });
+    return result;
+}
+
+- (void)setAudienceVC:(UIViewController *)audienceVC {
+    %orig;
+    DYYYLiveDurationInstallFromContainer(self);
+}
+
+- (void)setRoomModel:(id)roomModel {
+    %orig;
+    DYYYLiveDurationInstallFromContainer(self);
+}
+
+- (void)createAudienceViewController:(id)arg beginTime:(double)beginTime {
+    %orig;
+    __weak id weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+      DYYYLiveDurationInstallFromContainer(weakSelf);
+    });
+}
+
+- (id)audienceControllerWithRoom:(id)room beginTime:(double)beginTime {
+    id result = %orig;
+    __weak id weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      DYYYLiveDurationInstallFromContainer(weakSelf);
+    });
+    return result;
+}
+
+- (void)updateWithRoomModel:(id)roomModel config:(id)config {
+    %orig;
+    DYYYLiveDurationInstallFromContainer(self);
+}
+
+- (void)updateWithRoomModel:(id)roomModel context:(id)context {
+    %orig;
+    DYYYLiveDurationInstallFromContainer(self);
+}
+
+- (void)updateWithRoomModel:(id)roomModel context:(id)context player:(id)player {
+    %orig;
+    DYYYLiveDurationInstallFromContainer(self);
+}
+
+- (void)clearAudience {
+    UIViewController *viewController = DYYYLiveDurationContainerAudienceVC(self);
+    if ([viewController isKindOfClass:[UIViewController class]]) {
+        DYYYLiveDurationRemoveFromView(viewController.view);
+    }
+    %orig;
+}
+
+- (void)prepareForReuse {
+    UIViewController *viewController = DYYYLiveDurationContainerAudienceVC(self);
+    if ([viewController isKindOfClass:[UIViewController class]]) {
+        DYYYLiveDurationRemoveFromView(viewController.view);
+    }
+    %orig;
+}
+
+- (void)dealloc {
+    UIViewController *viewController = DYYYLiveDurationContainerAudienceVC(self);
+    if ([viewController isKindOfClass:[UIViewController class]]) {
+        DYYYLiveDurationRemoveFromView(viewController.view);
+    }
+    %orig;
+}
+
+%end
+
+%hook AWELiveAudienceViewController
+
+- (id)initWithRoomModel:(id)roomModel {
+    id result = %orig;
+    __weak id weakResult = result;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+      DYYYLiveDurationInstallFromAudienceWrapper(weakResult);
+    });
+    return result;
+}
+
+- (void)setRoomModel:(id)roomModel {
+    %orig;
+    DYYYLiveDurationInstallFromAudienceWrapper(self);
+}
+
+- (void)setAudienceViewController:(UIViewController *)audienceViewController {
+    %orig;
+    DYYYLiveDurationInstallFromAudienceWrapper(self);
+}
+
+- (void)attachAudienceViewControllerDelegate:(id)delegate {
+    %orig;
+    DYYYLiveDurationInstallFromAudienceWrapper(self);
+}
+
+- (void)exitLiveRoomWithType:(unsigned long long)type {
+    UIViewController *viewController = DYYYLiveDurationSafeValue(self, @"audienceViewController");
+    if ([viewController isKindOfClass:[UIViewController class]]) {
+        DYYYLiveDurationRemoveFromView(viewController.view);
+    }
+    %orig;
+}
+
+- (void)dealloc {
+    UIViewController *viewController = DYYYLiveDurationSafeValue(self, @"audienceViewController");
+    if ([viewController isKindOfClass:[UIViewController class]]) {
+        DYYYLiveDurationRemoveFromView(viewController.view);
+    }
+    %orig;
+}
+
+%end
+
+%hook IESLiveInnerFeedLiveRoomCell
+
+- (void)setItemModel:(id)itemModel {
+    %orig;
+    DYYYLiveDurationInstallFromInnerFeedCell(self);
+}
+
+- (void)setRoomAisle:(id)roomAisle {
+    %orig;
+    DYYYLiveDurationInstallFromInnerFeedCell(self);
+}
+
+- (void)setAudienceVC:(UIViewController *)audienceVC {
+    %orig;
+    DYYYLiveDurationInstallFromInnerFeedCell(self);
+}
+
+- (void)updateWithItemModel:(id)itemModel {
+    %orig;
+    DYYYLiveDurationInstallFromInnerFeedCell(self);
+}
+
+- (void)prepareForReuse {
+    UIViewController *viewController = DYYYLiveDurationSafeValue(self, @"audienceVC");
+    if ([viewController isKindOfClass:[UIViewController class]]) {
+        DYYYLiveDurationRemoveFromView(viewController.view);
+    }
+    %orig;
+}
+
+%end
+
 // 直播状态栏
 %hook IESLiveAudienceViewController
 - (BOOL)prefersStatusBarHidden {
@@ -6238,6 +6845,44 @@ static void DYYYApplyAvatarFollowPromptSettingsWithRetry(id owner) {
         return %orig;
     }
     return NO;
+}
+
+- (void)viewDidLoad {
+    %orig;
+    DYYYLiveDurationInstallOnView(self.view, self);
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    %orig;
+    DYYYLiveDurationInstallOnView(self.view, self);
+}
+
+- (void)viewDidLayoutSubviews {
+    %orig;
+    DYYYLiveDurationInstallOnView(self.view, self);
+    DYYYLiveDurationUpdateView(self.view);
+}
+
+- (void)didEnterRoom:(id)room {
+    %orig;
+    DYYYLiveDurationInstallOnView(self.view, room ?: self);
+}
+
+- (void)didPreloadRoom:(id)room {
+    %orig;
+    DYYYLiveDurationInstallOnView(self.view, room ?: self);
+}
+
+- (void)didCloseRoom:(id)room closeType:(unsigned long long)type {
+    DYYYLiveDurationRemoveFromView(self.view);
+    %orig;
+}
+
+- (void)dealloc {
+    if (self.isViewLoaded) {
+        DYYYLiveDurationRemoveFromView(self.view);
+    }
+    %orig;
 }
 %end
 

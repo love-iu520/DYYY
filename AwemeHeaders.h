@@ -1227,7 +1227,28 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @interface AWEFeedRootViewController : UIViewController
 - (BOOL)prefersStatusBarHidden;
 @end
+@interface AWELiveAudienceContainerController : NSObject
+@property(nonatomic, strong) id roomModel;
+@property(nonatomic, strong) UIViewController *audienceVC;
+- (UIViewController *)audienceViewController;
+@end
+
+@interface AWELiveAudienceViewController : NSObject
+@property(nonatomic, strong) id roomModel;
+@property(nonatomic, strong) UIViewController *audienceViewController;
+@end
+
+@interface IESLiveInnerFeedLiveRoomCell : UICollectionViewCell
+@property(nonatomic, strong) id itemModel;
+@property(nonatomic, strong) id roomAisle;
+@property(nonatomic, strong) UIViewController *audienceVC;
+@end
+
 @interface IESLiveAudienceViewController : UIViewController
+@property(nonatomic, strong) id containerContext;
+@property(nonatomic, strong) id roomDI;
+@property(nonatomic, strong) id roomConfig;
+@property(nonatomic, strong) id roomAisle;
 - (BOOL)prefersStatusBarHidden;
 @end
 @interface AWEAwemeDetailTableViewController : UIViewController
