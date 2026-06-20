@@ -6,7 +6,7 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "${script_dir}/build-relevance.sh"
 
 notes_file="${1:-release-notes.md}"
-head_sha="${GITHUB_SHA:-HEAD}"
+head_sha="${RELEASE_HEAD_SHA:-${GITHUB_SHA:-HEAD}}"
 repository="${GITHUB_REPOSITORY:-$(git config --get remote.origin.url | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')}"
 server_url="${GITHUB_SERVER_URL:-https://github.com}"
 

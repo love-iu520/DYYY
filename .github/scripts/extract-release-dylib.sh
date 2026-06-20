@@ -89,4 +89,4 @@ if command -v lipo >/dev/null 2>&1; then
     fi
 fi
 
-printf 'Release asset: %s\n' "$output_file"
+printf 'Package artifact: %s\n' "$output_file"
