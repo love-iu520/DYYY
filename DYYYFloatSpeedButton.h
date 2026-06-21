@@ -43,13 +43,10 @@ extern float getCurrentSpeed(void);
 extern NSInteger getCurrentSpeedIndex(void);
 extern void setCurrentSpeedIndex(NSInteger index);
 extern BOOL setCurrentSpeedValue(float speed);
-extern void DYYYSetSpeedButtonDisplayOverrideValue(float speed);
-extern void DYYYClearSpeedButtonDisplayOverrideValue(void);
 extern void updateSpeedButtonUI(void);
 extern void updateSpeedButtonVisibility(void);
 extern id DYYYCurrentSpeedInteractionController(void);
 extern void DYYYRefreshFloatSpeedButton(void);
-extern void DYYYApplyCurrentSpeedSelection(void);
 
 #ifdef __cplusplus
 }

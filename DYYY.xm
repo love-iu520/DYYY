@@ -226,40 +226,10 @@ static __weak AWEAwemeModel *dyyyCurrentSpeedAweme = nil;
 static NSString *dyyyLastAutoRestoredSpeedAwemeIdentifier = nil;
 static BOOL dyyyLongPressFastSpeedActive = NO;
 static BOOL dyyyLongPressLockedSpeedActive = NO;
-static BOOL dyyyLongPressLockGestureMovedDown = NO;
-static CGFloat dyyyLongPressLockGestureInitialY = CGFLOAT_MAX;
-static const CGFloat kDYYYLongPressLockSwipeThreshold = 12.0;
-
-static void DYYYResetLongPressLockGestureState(void) {
-    dyyyLongPressLockGestureMovedDown = NO;
-    dyyyLongPressLockGestureInitialY = CGFLOAT_MAX;
-}
-
-static void DYYYUpdateLongPressLockGestureState(UIGestureRecognizer *gesture) {
-    if (!gesture || !gesture.view) {
-        return;
-    }
-
-    CGPoint location = [gesture locationInView:gesture.view];
-    if (!isfinite(location.y)) {
-        return;
-    }
-
-    if (dyyyLongPressLockGestureInitialY == CGFLOAT_MAX) {
-        dyyyLongPressLockGestureInitialY = location.y;
-        return;
-    }
-
-    if (location.y - dyyyLongPressLockGestureInitialY >= kDYYYLongPressLockSwipeThreshold) {
-        dyyyLongPressLockGestureMovedDown = YES;
-    }
-}
 
 static void DYYYClearLongPressSpeedState(void) {
     dyyyLongPressFastSpeedActive = NO;
     dyyyLongPressLockedSpeedActive = NO;
-    DYYYResetLongPressLockGestureState();
-    DYYYClearSpeedButtonDisplayOverrideValue();
 }
 
 static CGFloat DYYYViewControllerVisibilityScore(UIViewController *viewController) {
@@ -339,73 +309,6 @@ static double DYYYDefaultPlaybackSpeed(void) {
     return 1.0;
 }
 
-static double DYYYLongPressPlaybackSpeed(void) {
-    double longPressSpeed = [[NSUserDefaults standardUserDefaults] doubleForKey:@"DYYYLongPressSpeed"];
-    if (isfinite(longPressSpeed) && longPressSpeed > 0.0) {
-        return longPressSpeed;
-    }
-    return 2.0;
-}
-
-static void DYYYShowFloatSpeedButtonLongPressSpeed(double speed) {
-    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableFloatSpeedButton"] || !isfinite(speed) || speed <= 0.0) {
-        return;
-    }
-    DYYYSetSpeedButtonDisplayOverrideValue((float)speed);
-}
-
-static void DYYYScheduleFloatSpeedButtonLongPressDisplay(double speed) {
-    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableFloatSpeedButton"] || !isfinite(speed) || speed <= 0.0) {
-        return;
-    }
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-      if (!dyyyLongPressLockedSpeedActive) {
-          return;
-      }
-      DYYYShowFloatSpeedButtonLongPressSpeed(speed);
-    });
-}
-
-static void DYYYRestoreFloatSpeedButtonDefaultDisplayAndSelection(void) {
-    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableFloatSpeedButton"]) {
-        return;
-    }
-
-    if (!setCurrentSpeedValue((float)DYYYDefaultPlaybackSpeed())) {
-        setCurrentSpeedIndex(0);
-    }
-    DYYYClearSpeedButtonDisplayOverrideValue();
-    updateSpeedButtonUI();
-}
-
-static void DYYYScheduleFloatSpeedButtonDefaultRestore(void) {
-    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableFloatSpeedButton"]) {
-        return;
-    }
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-      if (dyyyLongPressLockedSpeedActive) {
-          return;
-      }
-      DYYYRestoreFloatSpeedButtonDefaultDisplayAndSelection();
-    });
-}
-
-static void DYYYScheduleFloatSpeedButtonDisplayOverrideClear(void) {
-    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableFloatSpeedButton"]) {
-        return;
-    }
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-      if (dyyyLongPressLockedSpeedActive) {
-          return;
-      }
-      DYYYClearSpeedButtonDisplayOverrideValue();
-      updateSpeedButtonUI();
-    });
-}
-
 static void DYYYRestoreFloatSpeedButtonForAwemeIfNeeded(AWEAwemeModel *aweme) {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     BOOL shouldAutoRestore = [defaults boolForKey:@"DYYYEnableFloatSpeedButton"] && [defaults boolForKey:@"DYYYAutoRestoreSpeed"];
@@ -420,7 +323,10 @@ static void DYYYRestoreFloatSpeedButtonForAwemeIfNeeded(AWEAwemeModel *aweme) {
     }
 
     dyyyLastAutoRestoredSpeedAwemeIdentifier = [awemeIdentifier copy];
-    DYYYRestoreFloatSpeedButtonDefaultDisplayAndSelection();
+    if (!setCurrentSpeedValue((float)DYYYDefaultPlaybackSpeed())) {
+        setCurrentSpeedIndex(0);
+    }
+    updateSpeedButtonUI();
 }
 
 static NSArray<AWEPlayInteractionViewController *> *DYYYSpeedInteractionControllers(AWEPlayInteractionViewController *preferredController) {
@@ -666,25 +572,6 @@ static void DYYYBindAndApplyCurrentPlaybackSpeed(void) {
     DYYYApplyPlaybackSpeed(currentController, DYYYConfiguredPlaybackSpeed());
 }
 
-void DYYYApplyCurrentSpeedSelection(void) {
-    void (^applyBlock)(void) = ^{
-      if (!DYYYShouldHandleSpeedFeatures()) {
-          updateSpeedButtonUI();
-          updateSpeedButtonVisibility();
-          return;
-      }
-
-      DYYYRefreshFloatSpeedButton();
-      updateSpeedButtonUI();
-      DYYYBindAndApplyCurrentPlaybackSpeed();
-    };
-    if ([NSThread isMainThread]) {
-        applyBlock();
-    } else {
-        dispatch_async(dispatch_get_main_queue(), applyBlock);
-    }
-}
-
 static void DYYYScheduleConfiguredPlaybackSpeedRestoreAfterDelay(NSTimeInterval delay) {
     dispatch_block_t restoreBlock = ^{
       DYYYBindAndApplyCurrentPlaybackSpeed();
@@ -706,8 +593,6 @@ static void DYYYEndLockedLongPressSpeedAndRestoreIfNeeded(void) {
         return;
     }
     dyyyLongPressLockedSpeedActive = NO;
-    DYYYResetLongPressLockGestureState();
-    DYYYScheduleFloatSpeedButtonDefaultRestore();
     DYYYScheduleConfiguredPlaybackSpeedRestore();
 }
 
@@ -4773,18 +4658,22 @@ static CGFloat initialTouchX = 0;
 static BOOL isGestureActive = NO;
 
 - (CGFloat)longPressFastSpeedValue {
-    return DYYYLongPressPlaybackSpeed();
+    float longPressSpeed = DYYYGetFloat(@"DYYYLongPressSpeed");
+    if (longPressSpeed == 0) {
+        longPressSpeed = 2.0;
+    }
+    return longPressSpeed;
 }
 
 - (void)changeSpeed:(double)speed {
-    double longPressSpeed = DYYYLongPressPlaybackSpeed();
+    float longPressSpeed = DYYYGetFloat(@"DYYYLongPressSpeed");
 
     if (isGestureActive && currentLongPressSpeed > 0) {
         %orig(currentLongPressSpeed);
         return;
     }
 
-    if (speed == 2.0 && longPressSpeed != 2.0) {
+    if (speed == 2.0 && longPressSpeed != 0 && longPressSpeed != 2.0) {
         %orig(longPressSpeed);
         return;
     }
@@ -4808,9 +4697,6 @@ static BOOL isGestureActive = NO;
     if (isBeginning) {
         dyyyLongPressFastSpeedActive = YES;
         dyyyLongPressLockedSpeedActive = NO;
-        DYYYResetLongPressLockGestureState();
-        dyyyLongPressLockGestureInitialY = location.y;
-        DYYYScheduleFloatSpeedButtonDisplayOverrideClear();
     } else if (isEnding) {
         isGestureActive = NO;
         currentLongPressSpeed = 0;
@@ -4821,9 +4707,6 @@ static BOOL isGestureActive = NO;
     %orig;
 
     if (isEnding) {
-        if (!dyyyLongPressLockedSpeedActive) {
-            DYYYScheduleFloatSpeedButtonDisplayOverrideClear();
-        }
         DYYYScheduleConfiguredPlaybackSpeedRestore();
     }
 
@@ -4835,7 +4718,10 @@ static BOOL isGestureActive = NO;
         initialTouchY = location.y;
         isGestureActive = YES;
 
-        double longPressSpeed = DYYYLongPressPlaybackSpeed();
+        float longPressSpeed = DYYYGetFloat(@"DYYYLongPressSpeed");
+        if (longPressSpeed == 0) {
+            longPressSpeed = 2.0;
+        }
         currentLongPressSpeed = longPressSpeed;
     }
     else if (gesture.state == UIGestureRecognizerStateChanged && isGestureActive) {
@@ -4854,10 +4740,6 @@ static BOOL isGestureActive = NO;
                 initialTouchY = location.y;
                 [self changeSpeed:currentLongPressSpeed];
             }
-
-            if (deltaY > threshold) {
-                dyyyLongPressLockGestureMovedDown = YES;
-            }
         }
     }
 }
@@ -4871,23 +4753,13 @@ static BOOL isGestureActive = NO;
 - (void)handleLongPressLockedDoubleSpeedChanged:(id)arg1 gesture:(UIGestureRecognizer *)gesture {
     dyyyLongPressFastSpeedActive = YES;
     dyyyLongPressLockedSpeedActive = NO;
-    DYYYUpdateLongPressLockGestureState(gesture);
     %orig(arg1, gesture);
 }
 
 - (void)handleLongPressLockedDoubleSpeedEnded:(id)arg1 gesture:(UIGestureRecognizer *)gesture {
-    DYYYUpdateLongPressLockGestureState(gesture);
-    BOOL shouldShowLockedSpeed = dyyyLongPressLockGestureMovedDown;
     %orig(arg1, gesture);
     dyyyLongPressFastSpeedActive = NO;
-    dyyyLongPressLockedSpeedActive = shouldShowLockedSpeed;
-    if (shouldShowLockedSpeed) {
-        DYYYScheduleFloatSpeedButtonLongPressDisplay(DYYYLongPressPlaybackSpeed());
-    } else {
-        DYYYScheduleFloatSpeedButtonDisplayOverrideClear();
-        DYYYScheduleConfiguredPlaybackSpeedRestore();
-    }
-    DYYYResetLongPressLockGestureState();
+    dyyyLongPressLockedSpeedActive = YES;
 }
 
 - (void)longPressSpeedControlDidChangeSpeed:(double)speed {
@@ -4904,7 +4776,10 @@ static BOOL isGestureActive = NO;
     UIView *superview = self.superview;
 
     if ([superview isKindOfClass:%c(AFDFastSpeedView)] && text) {
-        CGFloat displaySpeed = isGestureActive && currentLongPressSpeed > 0 ? currentLongPressSpeed : DYYYLongPressPlaybackSpeed();
+        CGFloat displaySpeed = isGestureActive && currentLongPressSpeed > 0 ? currentLongPressSpeed : DYYYGetFloat(@"DYYYLongPressSpeed");
+        if (displaySpeed == 0) {
+            displaySpeed = 2.0;
+        }
 
         NSString *speedString = [NSString stringWithFormat:@"%.2f", displaySpeed];
         if ([speedString hasSuffix:@".00"]) {
@@ -11606,17 +11481,6 @@ static Class tabBarButtonClass = nil;
     DYYYRestoreFloatSpeedButtonForAwemeIfNeeded(self.model);
     DYYYEnsureFloatSpeedButton(self);
     reloadClearButtonConfiguration();
-}
-
-- (void)viewDidAppear:(BOOL)animated {
-    %orig;
-    isInPlayInteractionVC = YES;
-    dyyyCurrentSpeedAweme = self.model;
-    DYYYEnsureFloatSpeedButton(self);
-    reloadClearButtonConfiguration();
-    dispatch_async(dispatch_get_main_queue(), ^{
-      DYYYEnsureFloatSpeedButton(self);
-    });
 }
 
 - (void)viewDidLayoutSubviews {

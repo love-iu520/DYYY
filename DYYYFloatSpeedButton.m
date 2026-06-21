@@ -18,8 +18,6 @@ BOOL speedButtonForceHidden = NO;
 BOOL dyyyInteractionViewVisible = NO;
 
 static NSString *const kDYYYDefaultSpeedSettingsString = @"0.75,1.0,1.25,1.5,2.0,2.5,3.0";
-static BOOL dyyySpeedButtonDisplayOverrideActive = NO;
-static float dyyySpeedButtonDisplayOverrideSpeed = 0.0f;
 
 static void DYYYApplySpeedButtonHiddenState(UIView *button, BOOL hidden) {
     if (!button) {
@@ -86,13 +84,10 @@ NSString *DYYYDefaultSpeedSettingsString(void) {
 
 static NSString *DYYYSpeedSettingsStringFromValue(id value) {
     if ([value isKindOfClass:[NSString class]]) {
-        return (NSString *)value;
+        return [(NSString *)value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     }
-    if ([value respondsToSelector:@selector(doubleValue)]) {
-        double speed = [value doubleValue];
-        if (isfinite(speed) && speed > 0.0) {
-            return DYYYFormatSpeedOption(speed);
-        }
+    if ([value respondsToSelector:@selector(stringValue)]) {
+        return [[value stringValue] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     }
     return nil;
 }
@@ -100,7 +95,6 @@ static NSString *DYYYSpeedSettingsStringFromValue(id value) {
 static NSArray<NSString *> *DYYYParsedSpeedOptionsFromString(NSString *speedConfig) {
     NSMutableArray<NSString *> *validSpeeds = [NSMutableArray array];
     NSCharacterSet *whitespace = [NSCharacterSet whitespaceAndNewlineCharacterSet];
-    NSMutableSet<NSString *> *seenSpeeds = [NSMutableSet set];
 
     for (NSString *component in [speedConfig componentsSeparatedByString:@","]) {
         NSString *trimmedValue = [component stringByTrimmingCharactersInSet:whitespace];
@@ -111,14 +105,9 @@ static NSArray<NSString *> *DYYYParsedSpeedOptionsFromString(NSString *speedConf
         NSScanner *scanner = [NSScanner scannerWithString:trimmedValue];
         double speed = 0.0;
         if ([scanner scanDouble:&speed] && scanner.isAtEnd && isfinite(speed) && speed > 0.0) {
-            NSString *normalizedSpeed = DYYYFormatSpeedOption(speed);
-            if (![seenSpeeds containsObject:normalizedSpeed]) {
-                [validSpeeds addObject:normalizedSpeed];
-                [seenSpeeds addObject:normalizedSpeed];
-            }
+            [validSpeeds addObject:DYYYFormatSpeedOption(speed)];
         }
     }
-
     return validSpeeds;
 }
 
@@ -153,10 +142,6 @@ static BOOL DYYYSpeedOptionsCoverRequiredPlaybackSpeeds(NSArray<NSString *> *spe
 
 BOOL DYYYNormalizeSpeedSettingsForRequiredSpeeds(void) {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    if (![defaults boolForKey:@"DYYYEnableFloatSpeedButton"]) {
-        return NO;
-    }
-
     NSString *speedConfig = DYYYSpeedSettingsStringFromValue([defaults objectForKey:@"DYYYSpeedSettings"]);
     NSArray<NSString *> *validSpeeds = DYYYParsedSpeedOptionsFromString(speedConfig ?: @"");
     BOOL shouldUseDefaultSettings = speedConfig.length == 0 ||
@@ -238,29 +223,11 @@ BOOL setCurrentSpeedValue(float speed) {
     return NO;
 }
 
-void DYYYSetSpeedButtonDisplayOverrideValue(float speed) {
-    if (!isfinite(speed) || speed <= 0.0f) {
-        return;
-    }
-    dyyySpeedButtonDisplayOverrideActive = YES;
-    dyyySpeedButtonDisplayOverrideSpeed = speed;
-    updateSpeedButtonUI();
-}
-
-void DYYYClearSpeedButtonDisplayOverrideValue(void) {
-    if (!dyyySpeedButtonDisplayOverrideActive) {
-        return;
-    }
-    dyyySpeedButtonDisplayOverrideActive = NO;
-    dyyySpeedButtonDisplayOverrideSpeed = 0.0f;
-    updateSpeedButtonUI();
-}
-
 void updateSpeedButtonUI() {
     if (!speedButton)
         return;
 
-    float currentSpeed = dyyySpeedButtonDisplayOverrideActive ? dyyySpeedButtonDisplayOverrideSpeed : getCurrentSpeed();
+    float currentSpeed = getCurrentSpeed();
 
     NSString *formattedSpeed;
     if (fmodf(currentSpeed, 1.0) == 0) {
@@ -615,13 +582,6 @@ void updateSpeedButtonVisibility() {
     [super didMoveToWindow];
     if (!self.window) {
         [self stopTimers];
-        if (isFloatSpeedButtonEnabled && !DYYYShouldHideSpeedButton()) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-              if (!speedButton.window && isFloatSpeedButtonEnabled && !DYYYShouldHideSpeedButton()) {
-                  DYYYRefreshFloatSpeedButton();
-              }
-            });
-        }
         return;
     }
     [self ensureStatusCheckTimerRunning];
