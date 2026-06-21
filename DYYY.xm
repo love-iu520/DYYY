@@ -8291,16 +8291,30 @@ static NSHashTable *processedParentViews = nil;
             return nil;
         }
 
-        NSScanner *integerScanner = [NSScanner scannerWithString:trimmed];
-        long long integerValue = 0;
-        if ([integerScanner scanLongLong:&integerValue] && integerScanner.isAtEnd) {
-            return @(integerValue);
+        NSString *normalized = [[trimmed componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] componentsJoinedByString:@""];
+        normalized = [normalized stringByReplacingOccurrencesOfString:@"," withString:@""];
+        normalized = [normalized stringByReplacingOccurrencesOfString:@"+" withString:@""];
+        if ([normalized hasSuffix:@"赞"]) {
+            normalized = [normalized substringToIndex:normalized.length - 1];
         }
 
-        NSScanner *doubleScanner = [NSScanner scannerWithString:trimmed];
+        double multiplier = 1.0;
+        NSString *lowercaseValue = [normalized lowercaseString];
+        if ([normalized hasSuffix:@"亿"]) {
+            multiplier = 100000000.0;
+            normalized = [normalized substringToIndex:normalized.length - 1];
+        } else if ([normalized hasSuffix:@"万"] || [lowercaseValue hasSuffix:@"w"]) {
+            multiplier = 10000.0;
+            normalized = [normalized substringToIndex:normalized.length - 1];
+        } else if ([normalized hasSuffix:@"千"] || [lowercaseValue hasSuffix:@"k"]) {
+            multiplier = 1000.0;
+            normalized = [normalized substringToIndex:normalized.length - 1];
+        }
+
+        NSScanner *doubleScanner = [NSScanner scannerWithString:normalized];
         double doubleValue = 0.0;
         if ([doubleScanner scanDouble:&doubleValue] && doubleScanner.isAtEnd) {
-            return @((long long)llround(doubleValue));
+            return @((long long)llround(doubleValue * multiplier));
         }
     }
 
@@ -8432,11 +8446,8 @@ static NSHashTable *processedParentViews = nil;
         return [baseFiltered copy];
     }
 
-    // 第二阶段：低赞过滤（字段缺失时放行，避免误杀）
+    // 第二阶段：低赞过滤。字段缺失时放行；只要能解析到数值，就严格按阈值过滤。
     NSMutableArray *lowLikesFiltered = [NSMutableArray arrayWithCapacity:baseFiltered.count];
-    NSInteger awemeCount = 0;
-    NSInteger unresolvedLikesCount = 0;
-    NSInteger filteredByLowLikesCount = 0;
 
     for (id obj in baseFiltered) {
         if (![obj isKindOfClass:%c(AWEAwemeModel)]) {
@@ -8444,38 +8455,19 @@ static NSHashTable *processedParentViews = nil;
             continue;
         }
 
-        awemeCount++;
         AWEAwemeModel *m = (AWEAwemeModel *)obj;
         NSNumber *diggCountValue = [self dyyy_resolvedDiggCountForAweme:m];
-        NSInteger diggCount = diggCountValue.integerValue;
 
-        // 新版部分链路点赞字段会短暂缺失/回填为0，这里按未知放行，避免整批误过滤
-        if (!diggCountValue || diggCount <= 0) {
-            unresolvedLikesCount++;
+        if (!diggCountValue) {
             [lowLikesFiltered addObject:obj];
             continue;
         }
 
-        if (diggCount < minLikesThreshold) {
-            filteredByLowLikesCount++;
+        if (diggCountValue.integerValue < minLikesThreshold) {
             continue;
         }
 
         [lowLikesFiltered addObject:obj];
-    }
-
-    CGFloat unresolvedRatio = awemeCount > 0 ? ((CGFloat)unresolvedLikesCount / (CGFloat)awemeCount) : 0.0f;
-    BOOL shouldRollbackLowLikes = (awemeCount >= 3 && lowLikesFiltered.count <= 1 && unresolvedRatio >= 0.5f);
-    BOOL shouldPreventEmptyBatch = (awemeCount >= 3 && lowLikesFiltered.count == 0 && filteredByLowLikesCount > 0);
-
-    if (shouldRollbackLowLikes || shouldPreventEmptyBatch) {
-        NSLog(@"[DYYY] 低赞过滤回退: total=%ld kept=%ld unresolved=%ld lowLikesFiltered=%ld threshold=%ld",
-              (long)awemeCount,
-              (long)lowLikesFiltered.count,
-              (long)unresolvedLikesCount,
-              (long)filteredByLowLikesCount,
-              (long)minLikesThreshold);
-        return [baseFiltered copy];
     }
 
     return [lowLikesFiltered copy];
