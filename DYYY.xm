@@ -8371,6 +8371,7 @@ static NSHashTable *processedParentViews = nil;
     NSInteger minLikesThreshold = DYYYGetInteger(@"DYYYFilterLowLikes"); // 读取低赞过滤阈值 (例如: 1000)
     BOOL skipPhotoText = DYYYGetBool(@"DYYYSkipPhotoText"); // 图文过滤
     BOOL skipPhoto = DYYYGetBool(@"DYYYSkipPhoto"); // 图集过滤
+    BOOL skipMusic = DYYYGetBool(@"DYYYSkipMusic"); // 音乐过滤
     BOOL shouldDisableHDR = DYYYShouldDisableAllHDR();
     BOOL noAds = DYYYGetBool(@"DYYYNoAds");
 
@@ -8414,6 +8415,15 @@ static NSHashTable *processedParentViews = nil;
             [m respondsToSelector:@selector(referString)] &&
             [m.referString isEqualToString:@"homepage_hot"]) {
             continue; // 图集且来自推荐页，跳过
+        }
+
+        // 2.3 音乐过滤逻辑（推荐页）
+        if (skipMusic &&
+            [m respondsToSelector:@selector(referString)] &&
+            [m.referString isEqualToString:@"homepage_hot"] &&
+            (([m respondsToSelector:@selector(musicCard)] && m.musicCard) ||
+             ([m respondsToSelector:@selector(awemeType)] && m.awemeType == 155))) {
+            continue; // 音乐卡片或音乐视频且来自推荐页，跳过
         }
 
         // 3. 时间限制过滤
@@ -8619,7 +8629,7 @@ static NSHashTable *processedParentViews = nil;
     BOOL isRecommendFeed = [self.referString isEqualToString:@"homepage_hot"];
     BOOL shouldskipPhoto = skipPhoto && (self.awemeType == 68) && isRecommendFeed;
     BOOL shouldskipPhotoText = skipPhotoText && self.isNewTextMode && isRecommendFeed;
-    BOOL shouldFilterMusic = skipMusic && self.musicCard && isRecommendFeed; // or self.awemeType == 155
+    BOOL shouldFilterMusic = skipMusic && isRecommendFeed && (self.musicCard || self.awemeType == 155);
     BOOL shouldFilterAIInteraction = skipAIInteraction && (self.awemeType == 162) && isRecommendFeed;
     BOOL shouldFilterHDR = NO;
     BOOL shouldFilterLowLikes = NO;
@@ -8736,7 +8746,7 @@ static NSHashTable *processedParentViews = nil;
         }
     }
 
-    return shouldFilterAds || shouldFilterAllLive || shouldFilterHotSpot || shouldFilterHDR || shouldFilterKeywords || shouldFilterProp ||
+    return shouldFilterAds || shouldFilterAllLive || shouldFilterHotSpot || shouldFilterMusic || shouldFilterHDR || shouldFilterKeywords || shouldFilterProp ||
            shouldFilterTime || shouldFilterUser;
 }
 
