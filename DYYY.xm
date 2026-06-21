@@ -5266,7 +5266,7 @@ static NSArray *DYYYIMMenuItemsByAddingDownloadAction(NSArray *menuItems, id cel
 
 %hook AWEFeedLiveMarkView
 - (void)setHidden:(BOOL)hidden {
-    if (DYYYGetBool(@"DYYYHideAvatarLive")) {
+    if (DYYYGetBool(@"DYYYHideAvatarLive") || DYYYGetBool(@"DYYYHideAvatarButton")) {
         hidden = YES;
     }
 
@@ -5296,6 +5296,7 @@ static char kDYYYAvatarActionRemovedViewKey;
 static char kDYYYAvatarActionChromeViewKey;
 static char kDYYYAvatarActionHiddenLayerKey;
 static char kDYYYAvatarActionChromeLayerKey;
+static char kDYYYAvatarSurroundingHiddenViewKey;
 
 static BOOL DYYYAvatarFollowOptionsEnabled(void) {
     return DYYYGetBool(@"DYYYHideLOTAnimationView") || DYYYGetBool(@"DYYYHideFollowPromptView");
@@ -5391,6 +5392,46 @@ static void DYYYHideAvatarVisualForSelector(id object, SEL selector) {
     UIView *view = DYYYAvatarViewForSelector(object, selector);
     if (view) {
         view.hidden = YES;
+    }
+}
+
+static void DYYYMarkAvatarSurroundingViewHidden(UIView *view) {
+    if (!view) {
+        return;
+    }
+
+    objc_setAssociatedObject(view, &kDYYYAvatarSurroundingHiddenViewKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    view.hidden = YES;
+    view.userInteractionEnabled = NO;
+}
+
+static BOOL DYYYShouldForceAvatarSurroundingViewHidden(UIView *view) {
+    return view && objc_getAssociatedObject(view, &kDYYYAvatarSurroundingHiddenViewKey) && DYYYGetBool(@"DYYYHideAvatarButton");
+}
+
+static void DYYYHideAvatarSurroundingVisualForSelector(id object, SEL selector) {
+    UIView *view = DYYYAvatarViewForSelector(object, selector);
+    DYYYMarkAvatarSurroundingViewHidden(view);
+}
+
+static void DYYYApplyAvatarSurroundingSettingsForOwner(id owner) {
+    if (!owner || !DYYYGetBool(@"DYYYHideAvatarButton")) {
+        return;
+    }
+
+    for (NSString *selectorName in @[
+             @"colorRingView",
+             @"storyRingView",
+             @"story25RingView",
+             @"decorationView",
+             @"avatarDecorationView",
+             @"avatarPendantView",
+             @"avatarLiveMarkView",
+             @"liveMarkView",
+             @"avatarLiveTagView",
+             @"liveTagView",
+         ]) {
+        DYYYHideAvatarSurroundingVisualForSelector(owner, NSSelectorFromString(selectorName));
     }
 }
 
@@ -9118,7 +9159,7 @@ static NSHashTable *processedParentViews = nil;
 %hook AWEUserModel
 
 - (NSNumber *)roomID {
-	BOOL DYYYHideAvatarLive = DYYYGetBool(@"DYYYHideAvatarLive");
+	BOOL DYYYHideAvatarLive = DYYYGetBool(@"DYYYHideAvatarLive") || DYYYGetBool(@"DYYYHideAvatarButton");
 	if (DYYYHideAvatarLive) {
 		return @(0);
 	}
@@ -9132,16 +9173,16 @@ static NSHashTable *processedParentViews = nil;
 %hook AWEUserModel
 
 - (id)storyRing {
-	BOOL DYYYHideAvatarRing = DYYYGetBool(@"DYYYHideAvatarRing");
-	if (DYYYHideAvatarRing) {
+	BOOL DYYYHideAvatarButton = DYYYGetBool(@"DYYYHideAvatarButton");
+	if (DYYYHideAvatarButton) {
 		return nil;
 	}
 	return %orig;
 }
 
 - (void)setStoryRing:(id)ring {
-	BOOL DYYYHideAvatarRing = DYYYGetBool(@"DYYYHideAvatarRing");
-	if (DYYYHideAvatarRing) {
+	BOOL DYYYHideAvatarButton = DYYYGetBool(@"DYYYHideAvatarButton");
+	if (DYYYHideAvatarButton) {
 		%orig(nil);
 		return;
 	}
@@ -9153,16 +9194,16 @@ static NSHashTable *processedParentViews = nil;
 %hook AWECodeGenStoryRingInfoModel
 
 - (NSArray *)storyRingsModelArray {
-	BOOL DYYYHideAvatarRing = DYYYGetBool(@"DYYYHideAvatarRing");
-	if (DYYYHideAvatarRing) {
+	BOOL DYYYHideAvatarButton = DYYYGetBool(@"DYYYHideAvatarButton");
+	if (DYYYHideAvatarButton) {
 		return @[];
 	}
 	return %orig;
 }
 
 - (void)setStoryRingsModelArray:(NSArray *)array {
-	BOOL DYYYHideAvatarRing = DYYYGetBool(@"DYYYHideAvatarRing");
-	if (DYYYHideAvatarRing) {
+	BOOL DYYYHideAvatarButton = DYYYGetBool(@"DYYYHideAvatarButton");
+	if (DYYYHideAvatarButton) {
 		%orig(@[]);
 		return;
 	}
@@ -9532,6 +9573,7 @@ static NSHashTable *processedParentViews = nil;
 
     if (DYYYGetBool(@"DYYYHideAvatarButton")) {
         DYYYHideAvatarVisualForSelector(self, NSSelectorFromString(@"userAvatarView"));
+        DYYYApplyAvatarSurroundingSettingsForOwner(self);
     }
 
     DYYYApplyAvatarFollowPromptSettingsWithRetry(self);
@@ -9715,6 +9757,7 @@ static NSHashTable *processedParentViews = nil;
         DYYYHideAvatarVisualForSelector(self, NSSelectorFromString(@"avatarPicView"));
         id context = DYYYAvatarObjectForSelector(self, NSSelectorFromString(@"userAvatarContext"));
         DYYYHideAvatarVisualForSelector(context, NSSelectorFromString(@"avatarPicView"));
+        DYYYApplyAvatarSurroundingSettingsForOwner(self);
     }
     DYYYApplyAvatarFollowPromptSettingsWithRetry(self);
 }
@@ -9726,6 +9769,7 @@ static NSHashTable *processedParentViews = nil;
     if (DYYYGetBool(@"DYYYHideAvatarButton")) {
         id context = DYYYAvatarObjectForSelector(self, NSSelectorFromString(@"userAvatarContext"));
         DYYYHideAvatarVisualForSelector(context, NSSelectorFromString(@"avatarPicView"));
+        DYYYApplyAvatarSurroundingSettingsForOwner(self);
     }
     DYYYApplyAvatarFollowPromptSettingsWithRetry(self);
 }
@@ -9749,32 +9793,31 @@ static NSHashTable *processedParentViews = nil;
 %hook AWEPlayInteractionUserAvatarStoryController
 - (void)layoutElementView {
     %orig;
-    if (DYYYGetBool(@"DYYYHideAvatarRing")) {
-        DYYYHideAvatarVisualForSelector(self, NSSelectorFromString(@"colorRingView"));
-    }
+    DYYYApplyAvatarSurroundingSettingsForOwner(self);
 }
 
 - (void)showStory25RingView {
     %orig;
-    if (DYYYGetBool(@"DYYYHideAvatarRing")) {
-        DYYYHideAvatarVisualForSelector(self, NSSelectorFromString(@"colorRingView"));
-    }
+    DYYYApplyAvatarSurroundingSettingsForOwner(self);
 }
 %end
 
 %hook AWEPlayInteractionUserAvatarDecorationController
 - (void)layoutElementView {
     %orig;
+    DYYYApplyAvatarSurroundingSettingsForOwner(self);
     DYYYApplyAvatarFollowPromptSettingsWithRetry(self);
 }
 
 - (void)viewController_willDisplay {
     %orig;
+    DYYYApplyAvatarSurroundingSettingsForOwner(self);
     DYYYApplyAvatarFollowPromptSettingsWithRetry(self);
 }
 
 - (void)setDecorationStyle:(long long)style {
     %orig(style);
+    DYYYApplyAvatarSurroundingSettingsForOwner(self);
     DYYYApplyAvatarFollowPromptSettingsWithRetry(self);
 }
 %end
@@ -11213,7 +11256,8 @@ static Class tabBarButtonClass = nil;
 %hook UIView
 
 - (void)setHidden:(BOOL)hidden {
-    %orig(DYYYShouldForceAvatarActionViewHidden(self) ? YES : hidden);
+    BOOL shouldForceHidden = DYYYShouldForceAvatarActionViewHidden(self) || DYYYShouldForceAvatarSurroundingViewHidden(self);
+    %orig(shouldForceHidden ? YES : hidden);
 }
 
 - (void)didAddSubview:(UIView *)subview {
