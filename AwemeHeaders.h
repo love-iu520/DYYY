@@ -138,9 +138,6 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @property(nonatomic, copy) NSString *descriptionString;
 @property(nonatomic, copy) NSString *globalVisionTitle;
 @property(nonatomic, assign) BOOL isAds;
-@property(nonatomic, strong) id originAdInfo;
-@property(nonatomic, strong) id adInfo;
-@property(nonatomic, strong) id m2DataInfo;
 @property(nonatomic, assign) BOOL isLive;
 @property(nonatomic, assign) BOOL isLivePhoto;
 @property(nonatomic, assign) BOOL isNewTextMode;  // 文字图文专有属性
@@ -167,6 +164,7 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 - (BOOL)contentFilter;
 - (BOOL)checkIsAd;
 - (BOOL)isHardAdModel;
+- (BOOL)isHardAd;
 - (BOOL)awe_enableHDR;
 - (id)awe_HDRValueFor:(long long)value enableHDR:(BOOL)enableHDR;
 - (AWESearchAwemeExtraModel *)searchExtraModel;

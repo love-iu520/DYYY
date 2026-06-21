@@ -407,10 +407,23 @@ static const void *kCurrentIPRequestCityCodeKey = &kCurrentIPRequestCityCodeKey;
     if (!object || object == [NSNull null]) {
         return NO;
     }
-    if ([object respondsToSelector:@selector(count)]) {
+    if ([object isKindOfClass:[NSString class]]) {
+        NSString *value = [(NSString *)object stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        return value.length > 0 &&
+               ![value isEqualToString:@"{}"] &&
+               ![value isEqualToString:@"[]"] &&
+               ![value isEqualToString:@"null"];
+    }
+    if ([object isKindOfClass:[NSData class]]) {
+        return [(NSData *)object length] > 0;
+    }
+    if ([object isKindOfClass:[NSDictionary class]] || [object isKindOfClass:[NSArray class]]) {
         return [object count] > 0;
     }
-    return YES;
+    if ([object isKindOfClass:[NSNumber class]]) {
+        return [(NSNumber *)object boolValue];
+    }
+    return NO;
 }
 
 + (BOOL)isAdvertisementAwemeModel:(id)model {
@@ -419,20 +432,14 @@ static const void *kCurrentIPRequestCityCodeKey = &kCurrentIPRequestCityCodeKey;
         return NO;
     }
 
-    for (NSString *selectorName in @[ @"checkIsAd", @"isHardAdModel", @"isAds" ]) {
+    // 仅信任抖音模型自身明确的广告布尔判定，避免把常驻的广告能力占位对象误当成广告。
+    for (NSString *selectorName in @[ @"checkIsAd", @"isHardAdModel", @"isHardAd", @"isAds" ]) {
         SEL selector = NSSelectorFromString(selectorName);
         if ([model respondsToSelector:selector]) {
             BOOL (*sendBool)(id, SEL) = (BOOL (*)(id, SEL))objc_msgSend;
             if (sendBool(model, selector)) {
                 return YES;
             }
-        }
-    }
-
-    for (NSString *key in @[ @"originAdInfo", @"adInfo", @"m2DataInfo" ]) {
-        id value = [self dyyy_safeValueForKey:key fromObject:model];
-        if ([self dyyy_objectContainsMeaningfulAdPayload:value]) {
-            return YES;
         }
     }
 
@@ -449,28 +456,11 @@ static const void *kCurrentIPRequestCityCodeKey = &kCurrentIPRequestCityCodeKey;
         return NO;
     }
 
-    id searchAdModule = [self dyyy_safeValueForKey:@"searchAdModule" fromObject:model];
-    if ([self dyyy_objectContainsMeaningfulAdPayload:searchAdModule]) {
-        return YES;
-    }
-
-    NSString *adCardName = [self dyyy_safeValueForKey:@"adCardName" fromObject:model];
-    if ([adCardName isKindOfClass:[NSString class]] && adCardName.length > 0) {
-        return YES;
-    }
-
+    // 搜索模型中的模块、卡片名和卡片类型在正常作品中也可能作为能力占位常驻，不能单独作为广告证据。
     id dynamicPatch = [self dyyy_safeValueForKey:@"commonDynamicPatchModel" fromObject:model];
     id isAdValue = [self dyyy_safeValueForKey:@"is_ad" fromObject:dynamicPatch];
     if ([isAdValue respondsToSelector:@selector(boolValue)] && [isAdValue boolValue]) {
         return YES;
-    }
-
-    SEL adCardTypeSelector = NSSelectorFromString(@"generalSearchAdCardTypeForWaterfall");
-    if ([model respondsToSelector:adCardTypeSelector]) {
-        NSInteger (*sendInteger)(id, SEL) = (NSInteger (*)(id, SEL))objc_msgSend;
-        if (sendInteger(model, adCardTypeSelector) > 0) {
-            return YES;
-        }
     }
 
     for (NSString *selectorName in @[ @"aweme", @"awemeInVideoFeed" ]) {
@@ -519,7 +509,8 @@ static const void *kCurrentIPRequestCityCodeKey = &kCurrentIPRequestCityCodeKey;
         }
     }
 
-    for (NSString *payloadKey in @[ @"aweme_raw_ad", @"raw_ad_data", @"origin_ad_info", @"ad_info" ]) {
+    // 仅检查名称本身就代表广告原始载荷的字段；普通作品也可能带有通用 ad_info 能力配置。
+    for (NSString *payloadKey in @[ @"aweme_raw_ad", @"raw_ad_data" ]) {
         if ([self dyyy_objectContainsMeaningfulAdPayload:dictionary[payloadKey]]) {
             return YES;
         }
