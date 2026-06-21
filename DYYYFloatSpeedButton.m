@@ -18,6 +18,8 @@ BOOL speedButtonForceHidden = NO;
 BOOL dyyyInteractionViewVisible = NO;
 
 static NSString *const kDYYYDefaultSpeedSettingsString = @"0.75,1.0,1.25,1.5,2.0,2.5,3.0";
+static BOOL dyyySpeedButtonDisplayOverrideActive = NO;
+static float dyyySpeedButtonDisplayOverrideSpeed = 0.0f;
 
 static void DYYYApplySpeedButtonHiddenState(UIView *button, BOOL hidden) {
     if (!button) {
@@ -236,11 +238,29 @@ BOOL setCurrentSpeedValue(float speed) {
     return NO;
 }
 
+void DYYYSetSpeedButtonDisplayOverrideValue(float speed) {
+    if (!isfinite(speed) || speed <= 0.0f) {
+        return;
+    }
+    dyyySpeedButtonDisplayOverrideActive = YES;
+    dyyySpeedButtonDisplayOverrideSpeed = speed;
+    updateSpeedButtonUI();
+}
+
+void DYYYClearSpeedButtonDisplayOverrideValue(void) {
+    if (!dyyySpeedButtonDisplayOverrideActive) {
+        return;
+    }
+    dyyySpeedButtonDisplayOverrideActive = NO;
+    dyyySpeedButtonDisplayOverrideSpeed = 0.0f;
+    updateSpeedButtonUI();
+}
+
 void updateSpeedButtonUI() {
     if (!speedButton)
         return;
 
-    float currentSpeed = getCurrentSpeed();
+    float currentSpeed = dyyySpeedButtonDisplayOverrideActive ? dyyySpeedButtonDisplayOverrideSpeed : getCurrentSpeed();
 
     NSString *formattedSpeed;
     if (fmodf(currentSpeed, 1.0) == 0) {
