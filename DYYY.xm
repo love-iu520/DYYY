@@ -11283,30 +11283,28 @@ static Class tabBarButtonClass = nil;
     }
 }
 
+- (void)didMoveToWindow {
+    %orig;
+    if (!hideButton || !hideButton.isElementsHidden) {
+        DYYYRestoreClearTargetViewStateIfNeeded(self);
+    }
+}
+
 - (id)initWithFrame:(CGRect)frame {
     UIView *view = %orig;
     if (hideButton && hideButton.isElementsHidden) {
         for (NSString *className in targetClassNames) {
             if ([view isKindOfClass:NSClassFromString(className)]) {
-                // 动态 alpha 视图（如暂停图标）：只用 hidden 隐藏，不干预 alpha
-                if (DYYYIsDynamicAlphaView(view)) {
-                    view.hidden = YES;
-                    break;
-                }
-                // 在置 0 之前先保存真正的原始 alpha，避免后续 findAndHideViews 记录到 0
-                if (!objc_getAssociatedObject(view, &dyyyClearOriginalAlphaKey)) {
-                    objc_setAssociatedObject(view, &dyyyClearOriginalAlphaKey, @(view.alpha), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                }
                 if ([view isKindOfClass:NSClassFromString(@"AWELeftSideBarEntranceView")]) {
                     dispatch_async(dispatch_get_main_queue(), ^{
                       UIViewController *controller = [hideButton findViewController:view];
                       if ([controller isKindOfClass:NSClassFromString(@"AWEFeedContainerViewController")]) {
-                          view.alpha = 0.0;
+                          DYYYApplyClearTargetViewHiddenState(view);
                       }
                     });
                     break;
                 }
-                view.alpha = 0.0;
+                DYYYApplyClearTargetViewHiddenState(view);
                 break;
             }
         }
