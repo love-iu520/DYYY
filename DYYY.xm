@@ -1742,6 +1742,11 @@ static void DYYYApplySDRDynamicRangeToImageView(UIImageView *imageView) {
     }
 }
 
+// 头像加号可能由异步动画重建图层，需要在 CALayer 写入点继续压制。
+static BOOL DYYYShouldForceHideAvatarActionLayer(CALayer *layer);
+static BOOL DYYYShouldClearAvatarActionLayer(CALayer *layer);
+static void DYYYPrepareAvatarActionSublayer(CALayer *parentLayer, CALayer *sublayer);
+
 static void DYYYDisableExtendedRangeForLayer(CALayer *layer) {
     if (!DYYYShouldDisableAllHDR() || !layer) {
         return;
@@ -2565,6 +2570,65 @@ static void DYYYDisableAVPlayerItemHDRMetadata(AVPlayerItem *item) {
 
 %hook CALayer
 
+- (void)setHidden:(BOOL)hidden {
+    %orig(DYYYShouldForceHideAvatarActionLayer(self) ? YES : hidden);
+}
+
+- (void)setContents:(id)contents {
+    %orig(DYYYShouldClearAvatarActionLayer(self) ? nil : contents);
+}
+
+- (void)setBackgroundColor:(CGColorRef)backgroundColor {
+    %orig(DYYYShouldClearAvatarActionLayer(self) ? UIColor.clearColor.CGColor : backgroundColor);
+}
+
+- (void)setOpaque:(BOOL)opaque {
+    %orig(DYYYShouldClearAvatarActionLayer(self) ? NO : opaque);
+}
+
+- (void)setBorderWidth:(CGFloat)borderWidth {
+    %orig(DYYYShouldClearAvatarActionLayer(self) ? 0.0 : borderWidth);
+}
+
+- (void)setBorderColor:(CGColorRef)borderColor {
+    %orig(DYYYShouldClearAvatarActionLayer(self) ? UIColor.clearColor.CGColor : borderColor);
+}
+
+- (void)setShadowOpacity:(float)shadowOpacity {
+    %orig(DYYYShouldClearAvatarActionLayer(self) ? 0.0f : shadowOpacity);
+}
+
+- (void)setShadowColor:(CGColorRef)shadowColor {
+    %orig(DYYYShouldClearAvatarActionLayer(self) ? UIColor.clearColor.CGColor : shadowColor);
+}
+
+- (void)addSublayer:(CALayer *)layer {
+    DYYYPrepareAvatarActionSublayer(self, layer);
+    %orig(layer);
+}
+
+- (void)insertSublayer:(CALayer *)layer atIndex:(unsigned int)index {
+    DYYYPrepareAvatarActionSublayer(self, layer);
+    %orig(layer, index);
+}
+
+- (void)insertSublayer:(CALayer *)layer below:(CALayer *)sibling {
+    DYYYPrepareAvatarActionSublayer(self, layer);
+    %orig(layer, sibling);
+}
+
+- (void)insertSublayer:(CALayer *)layer above:(CALayer *)sibling {
+    DYYYPrepareAvatarActionSublayer(self, layer);
+    %orig(layer, sibling);
+}
+
+- (void)setSublayers:(NSArray<CALayer *> *)sublayers {
+    for (CALayer *layer in sublayers) {
+        DYYYPrepareAvatarActionSublayer(self, layer);
+    }
+    %orig(sublayers);
+}
+
 - (void)setWantsExtendedDynamicRangeContent:(BOOL)wantsExtendedDynamicRangeContent {
     %orig(DYYYShouldDisableAllHDR() ? NO : wantsExtendedDynamicRangeContent);
 }
@@ -2590,6 +2654,18 @@ static void DYYYDisableAVPlayerItemHDRMetadata(AVPlayerItem *item) {
         }
     }
     return preferredDynamicRange;
+}
+
+%end
+
+%hook CAShapeLayer
+
+- (void)setFillColor:(CGColorRef)fillColor {
+    %orig(DYYYShouldClearAvatarActionLayer(self) ? UIColor.clearColor.CGColor : fillColor);
+}
+
+- (void)setStrokeColor:(CGColorRef)strokeColor {
+    %orig(DYYYShouldClearAvatarActionLayer(self) ? UIColor.clearColor.CGColor : strokeColor);
 }
 
 %end
@@ -5214,51 +5290,47 @@ static UIView *DYYYAvatarViewForSelector(id object, SEL selector) {
 }
 
 static char kDYYYAvatarFollowDeferredApplyKey;
+static char kDYYYAvatarFollowScopeViewKey;
+static char kDYYYAvatarActionHiddenViewKey;
+static char kDYYYAvatarActionRemovedViewKey;
+static char kDYYYAvatarActionChromeViewKey;
+static char kDYYYAvatarActionHiddenLayerKey;
+static char kDYYYAvatarActionChromeLayerKey;
 
 static BOOL DYYYAvatarFollowOptionsEnabled(void) {
     return DYYYGetBool(@"DYYYHideLOTAnimationView") || DYYYGetBool(@"DYYYHideFollowPromptView");
 }
 
-static void DYYYHideAvatarVisualForSelector(id object, SEL selector) {
-    UIView *view = DYYYAvatarViewForSelector(object, selector);
-    if (view) {
-        view.hidden = YES;
+static BOOL DYYYShouldForceHideAvatarActionLayer(CALayer *layer) {
+    return layer && objc_getAssociatedObject(layer, &kDYYYAvatarActionHiddenLayerKey) && DYYYAvatarFollowOptionsEnabled();
+}
+
+static BOOL DYYYShouldClearAvatarActionLayer(CALayer *layer) {
+    if (!layer || (!objc_getAssociatedObject(layer, &kDYYYAvatarActionChromeLayerKey) &&
+                   !objc_getAssociatedObject(layer, &kDYYYAvatarActionHiddenLayerKey))) {
+        return NO;
     }
+    return DYYYAvatarFollowOptionsEnabled();
 }
 
-static void DYYYRemoveAvatarView(UIView *view) {
-    if (!view) {
-        return;
-    }
-    view.hidden = YES;
-    view.userInteractionEnabled = NO;
-}
-
-static void DYYYRemoveAvatarViewForSelector(id object, SEL selector) {
-    UIView *view = DYYYAvatarViewForSelector(object, selector);
-    DYYYRemoveAvatarView(view);
-}
-
-static void DYYYHideAvatarFollowLayerContents(UIView *view) {
-    view.backgroundColor = UIColor.clearColor;
-    view.opaque = NO;
-    view.layer.contents = nil;
-    view.layer.opaque = NO;
-    view.layer.backgroundColor = UIColor.clearColor.CGColor;
-    view.layer.borderWidth = 0.0;
-    view.layer.borderColor = UIColor.clearColor.CGColor;
-    view.layer.shadowOpacity = 0.0;
-    view.layer.shadowColor = UIColor.clearColor.CGColor;
-    for (CALayer *sublayer in view.layer.sublayers) {
-        sublayer.hidden = YES;
-    }
-}
-
-static void DYYYClearAvatarActionLayerChrome(CALayer *layer) {
+static void DYYYMarkAvatarActionLayerHidden(CALayer *layer) {
     if (!layer) {
         return;
     }
 
+    objc_setAssociatedObject(layer, &kDYYYAvatarActionHiddenLayerKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    layer.hidden = YES;
+    for (CALayer *sublayer in [layer.sublayers copy]) {
+        DYYYMarkAvatarActionLayerHidden(sublayer);
+    }
+}
+
+static void DYYYMarkAvatarActionLayerChrome(CALayer *layer) {
+    if (!layer) {
+        return;
+    }
+
+    objc_setAssociatedObject(layer, &kDYYYAvatarActionChromeLayerKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     layer.contents = nil;
     layer.opaque = NO;
     layer.backgroundColor = UIColor.clearColor.CGColor;
@@ -5273,8 +5345,81 @@ static void DYYYClearAvatarActionLayerChrome(CALayer *layer) {
     }
 
     for (CALayer *sublayer in [layer.sublayers copy]) {
-        DYYYClearAvatarActionLayerChrome(sublayer);
+        DYYYMarkAvatarActionLayerHidden(sublayer);
     }
+}
+
+static void DYYYPrepareAvatarActionSublayer(CALayer *parentLayer, CALayer *sublayer) {
+    if (!parentLayer || !sublayer) {
+        return;
+    }
+
+    BOOL isSuppressedTree = objc_getAssociatedObject(parentLayer, &kDYYYAvatarActionChromeLayerKey) ||
+                            objc_getAssociatedObject(parentLayer, &kDYYYAvatarActionHiddenLayerKey);
+    if (isSuppressedTree && DYYYAvatarFollowOptionsEnabled()) {
+        DYYYMarkAvatarActionLayerHidden(sublayer);
+    }
+}
+
+static void DYYYMarkAvatarActionViewHidden(UIView *view) {
+    if (!view) {
+        return;
+    }
+
+    objc_setAssociatedObject(view, &kDYYYAvatarActionHiddenViewKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    view.hidden = YES;
+}
+
+static BOOL DYYYShouldForceAvatarActionViewHidden(UIView *view) {
+    if (!view) {
+        return NO;
+    }
+
+    BOOL hideVisual = objc_getAssociatedObject(view, &kDYYYAvatarActionHiddenViewKey) != nil;
+    BOOL removeView = objc_getAssociatedObject(view, &kDYYYAvatarActionRemovedViewKey) != nil;
+    if (!hideVisual && !removeView) {
+        return NO;
+    }
+    return (hideVisual && DYYYAvatarFollowOptionsEnabled()) || (removeView && DYYYGetBool(@"DYYYHideFollowPromptView"));
+}
+
+static BOOL DYYYShouldClearAvatarActionViewChrome(UIView *view) {
+    return view && objc_getAssociatedObject(view, &kDYYYAvatarActionChromeViewKey) && DYYYGetBool(@"DYYYHideLOTAnimationView");
+}
+
+static void DYYYHideAvatarVisualForSelector(id object, SEL selector) {
+    UIView *view = DYYYAvatarViewForSelector(object, selector);
+    if (view) {
+        view.hidden = YES;
+    }
+}
+
+static void DYYYRemoveAvatarView(UIView *view) {
+    if (!view) {
+        return;
+    }
+    objc_setAssociatedObject(view, &kDYYYAvatarActionRemovedViewKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    view.hidden = YES;
+    view.userInteractionEnabled = NO;
+}
+
+static void DYYYRemoveAvatarViewForSelector(id object, SEL selector) {
+    UIView *view = DYYYAvatarViewForSelector(object, selector);
+    DYYYRemoveAvatarView(view);
+}
+
+static void DYYYHideAvatarFollowLayerContents(UIView *view) {
+    if (!view) {
+        return;
+    }
+    objc_setAssociatedObject(view, &kDYYYAvatarActionChromeViewKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    view.backgroundColor = UIColor.clearColor;
+    view.opaque = NO;
+    DYYYMarkAvatarActionLayerChrome(view.layer);
+}
+
+static void DYYYClearAvatarActionLayerChrome(CALayer *layer) {
+    DYYYMarkAvatarActionLayerChrome(layer);
 }
 
 static void DYYYClearAvatarActionSubviewChrome(UIView *view) {
@@ -5282,6 +5427,7 @@ static void DYYYClearAvatarActionSubviewChrome(UIView *view) {
         return;
     }
 
+    objc_setAssociatedObject(view, &kDYYYAvatarActionChromeViewKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     view.backgroundColor = UIColor.clearColor;
     view.opaque = NO;
     DYYYClearAvatarActionLayerChrome(view.layer);
@@ -5296,6 +5442,7 @@ static void DYYYClearAvatarActionViewChrome(UIView *view) {
         return;
     }
 
+    objc_setAssociatedObject(view, &kDYYYAvatarActionChromeViewKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     view.backgroundColor = UIColor.clearColor;
     view.opaque = NO;
     DYYYClearAvatarActionLayerChrome(view.layer);
@@ -5332,7 +5479,7 @@ static BOOL DYYYHideAvatarFollowIconInView(UIView *view) {
         for (NSString *selectorName in @[ @"plusImageView", @"tickImageView" ]) {
             UIView *iconView = DYYYAvatarViewForSelector(view, NSSelectorFromString(selectorName));
             if (iconView) {
-                iconView.hidden = YES;
+                DYYYMarkAvatarActionViewHidden(iconView);
                 foundIcon = YES;
             }
         }
@@ -5392,7 +5539,7 @@ static BOOL DYYYHideAvatarAuxiliaryActionVisualsInView(UIView *view) {
                           [className containsString:@"EnterStoreImage"] ||
                           [className containsString:@"LinkIcon"];
     if (isActionVisual) {
-        view.hidden = YES;
+        DYYYMarkAvatarActionViewHidden(view);
         return YES;
     }
 
@@ -5466,6 +5613,9 @@ static BOOL DYYYApplyAvatarFollowSettingsInView(UIView *view, UIView *rootView) 
     if (!hidePlus && !removePlus) {
         return NO;
     }
+
+    // 记录已识别的头像操作树，便于异步追加子视图时立即再识别。
+    objc_setAssociatedObject(view, &kDYYYAvatarFollowScopeViewKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
     NSString *className = NSStringFromClass(view.class);
     BOOL isAvatarView = [className isEqualToString:@"AWEPlayInteractionUserAvatarView"];
@@ -11023,6 +11173,33 @@ static Class tabBarButtonClass = nil;
 
 %hook UIView
 
+- (void)setHidden:(BOOL)hidden {
+    %orig(DYYYShouldForceAvatarActionViewHidden(self) ? YES : hidden);
+}
+
+- (void)didAddSubview:(UIView *)subview {
+    %orig(subview);
+
+    if (!subview) {
+        return;
+    }
+
+    BOOL hasSuppressedChrome = objc_getAssociatedObject(self, &kDYYYAvatarActionChromeViewKey) != nil;
+    BOOL isAvatarFollowScope = objc_getAssociatedObject(self, &kDYYYAvatarFollowScopeViewKey) != nil;
+    if ((!hasSuppressedChrome && !isAvatarFollowScope) || !DYYYAvatarFollowOptionsEnabled()) {
+        return;
+    }
+
+    if (hasSuppressedChrome) {
+        DYYYClearAvatarActionSubviewChrome(subview);
+        DYYYHideAvatarAuxiliaryActionVisualsInView(subview);
+    }
+
+    if (isAvatarFollowScope) {
+        DYYYApplyAvatarFollowSettingsInView(subview, self);
+    }
+}
+
 - (id)initWithFrame:(CGRect)frame {
     UIView *view = %orig;
     if (hideButton && hideButton.isElementsHidden) {
@@ -11059,6 +11236,11 @@ static Class tabBarButtonClass = nil;
         dispatch_async(dispatch_get_main_queue(), ^{
           [self setBackgroundColor:backgroundColor];
         });
+        return;
+    }
+
+    if (DYYYShouldClearAvatarActionViewChrome(self)) {
+        %orig([UIColor clearColor]);
         return;
     }
 
