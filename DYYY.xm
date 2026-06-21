@@ -325,6 +325,19 @@ static void DYYYShowFloatSpeedButtonLongPressSpeed(double speed) {
     DYYYSetSpeedButtonDisplayOverrideValue((float)speed);
 }
 
+static void DYYYScheduleFloatSpeedButtonLongPressDisplay(double speed) {
+    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableFloatSpeedButton"] || !isfinite(speed) || speed <= 0.0) {
+        return;
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (!dyyyLongPressLockedSpeedActive) {
+          return;
+      }
+      DYYYShowFloatSpeedButtonLongPressSpeed(speed);
+    });
+}
+
 static void DYYYRestoreFloatSpeedButtonDefaultDisplayAndSelection(void) {
     if (![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableFloatSpeedButton"]) {
         return;
@@ -335,6 +348,33 @@ static void DYYYRestoreFloatSpeedButtonDefaultDisplayAndSelection(void) {
     }
     DYYYClearSpeedButtonDisplayOverrideValue();
     updateSpeedButtonUI();
+}
+
+static void DYYYScheduleFloatSpeedButtonDefaultRestore(void) {
+    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableFloatSpeedButton"]) {
+        return;
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (dyyyLongPressLockedSpeedActive) {
+          return;
+      }
+      DYYYRestoreFloatSpeedButtonDefaultDisplayAndSelection();
+    });
+}
+
+static void DYYYScheduleFloatSpeedButtonDisplayOverrideClear(void) {
+    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableFloatSpeedButton"]) {
+        return;
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (dyyyLongPressLockedSpeedActive) {
+          return;
+      }
+      DYYYClearSpeedButtonDisplayOverrideValue();
+      updateSpeedButtonUI();
+    });
 }
 
 static void DYYYRestoreFloatSpeedButtonForAwemeIfNeeded(AWEAwemeModel *aweme) {
@@ -637,7 +677,7 @@ static void DYYYEndLockedLongPressSpeedAndRestoreIfNeeded(void) {
         return;
     }
     dyyyLongPressLockedSpeedActive = NO;
-    DYYYRestoreFloatSpeedButtonDefaultDisplayAndSelection();
+    DYYYScheduleFloatSpeedButtonDefaultRestore();
     DYYYScheduleConfiguredPlaybackSpeedRestore();
 }
 
@@ -4747,13 +4787,9 @@ static BOOL isGestureActive = NO;
 
     %orig;
 
-    if (isBeginning) {
-        DYYYShowFloatSpeedButtonLongPressSpeed(DYYYLongPressPlaybackSpeed());
-    }
-
     if (isEnding) {
         if (!dyyyLongPressLockedSpeedActive) {
-            DYYYRestoreFloatSpeedButtonDefaultDisplayAndSelection();
+            DYYYScheduleFloatSpeedButtonDisplayOverrideClear();
         }
         DYYYScheduleConfiguredPlaybackSpeedRestore();
     }
@@ -4784,7 +4820,6 @@ static BOOL isGestureActive = NO;
                 currentLongPressSpeed = newSpeed;
                 initialTouchY = location.y;
                 [self changeSpeed:currentLongPressSpeed];
-                DYYYShowFloatSpeedButtonLongPressSpeed(currentLongPressSpeed);
             }
         }
     }
@@ -4793,14 +4828,12 @@ static BOOL isGestureActive = NO;
 - (void)handleLongPressLockedSpeedBegan {
     dyyyLongPressFastSpeedActive = YES;
     dyyyLongPressLockedSpeedActive = NO;
-    DYYYShowFloatSpeedButtonLongPressSpeed(DYYYLongPressPlaybackSpeed());
     %orig;
 }
 
 - (void)handleLongPressLockedDoubleSpeedChanged:(id)arg1 gesture:(UIGestureRecognizer *)gesture {
     dyyyLongPressFastSpeedActive = YES;
     dyyyLongPressLockedSpeedActive = NO;
-    DYYYShowFloatSpeedButtonLongPressSpeed(DYYYLongPressPlaybackSpeed());
     %orig(arg1, gesture);
 }
 
@@ -4808,7 +4841,7 @@ static BOOL isGestureActive = NO;
     %orig(arg1, gesture);
     dyyyLongPressFastSpeedActive = NO;
     dyyyLongPressLockedSpeedActive = YES;
-    DYYYShowFloatSpeedButtonLongPressSpeed(DYYYLongPressPlaybackSpeed());
+    DYYYScheduleFloatSpeedButtonLongPressDisplay(DYYYLongPressPlaybackSpeed());
 }
 
 - (void)longPressSpeedControlDidChangeSpeed:(double)speed {
