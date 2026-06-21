@@ -226,10 +226,39 @@ static __weak AWEAwemeModel *dyyyCurrentSpeedAweme = nil;
 static NSString *dyyyLastAutoRestoredSpeedAwemeIdentifier = nil;
 static BOOL dyyyLongPressFastSpeedActive = NO;
 static BOOL dyyyLongPressLockedSpeedActive = NO;
+static BOOL dyyyLongPressLockGestureMovedDown = NO;
+static CGFloat dyyyLongPressLockGestureInitialY = CGFLOAT_MAX;
+static const CGFloat kDYYYLongPressLockSwipeThreshold = 12.0;
+
+static void DYYYResetLongPressLockGestureState(void) {
+    dyyyLongPressLockGestureMovedDown = NO;
+    dyyyLongPressLockGestureInitialY = CGFLOAT_MAX;
+}
+
+static void DYYYUpdateLongPressLockGestureState(UIGestureRecognizer *gesture) {
+    if (!gesture || !gesture.view) {
+        return;
+    }
+
+    CGPoint location = [gesture locationInView:gesture.view];
+    if (!isfinite(location.y)) {
+        return;
+    }
+
+    if (dyyyLongPressLockGestureInitialY == CGFLOAT_MAX) {
+        dyyyLongPressLockGestureInitialY = location.y;
+        return;
+    }
+
+    if (location.y - dyyyLongPressLockGestureInitialY >= kDYYYLongPressLockSwipeThreshold) {
+        dyyyLongPressLockGestureMovedDown = YES;
+    }
+}
 
 static void DYYYClearLongPressSpeedState(void) {
     dyyyLongPressFastSpeedActive = NO;
     dyyyLongPressLockedSpeedActive = NO;
+    DYYYResetLongPressLockGestureState();
     DYYYClearSpeedButtonDisplayOverrideValue();
 }
 
@@ -330,7 +359,7 @@ static void DYYYScheduleFloatSpeedButtonLongPressDisplay(double speed) {
         return;
     }
 
-    dispatch_async(dispatch_get_main_queue(), ^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
       if (!dyyyLongPressLockedSpeedActive) {
           return;
       }
@@ -677,6 +706,7 @@ static void DYYYEndLockedLongPressSpeedAndRestoreIfNeeded(void) {
         return;
     }
     dyyyLongPressLockedSpeedActive = NO;
+    DYYYResetLongPressLockGestureState();
     DYYYScheduleFloatSpeedButtonDefaultRestore();
     DYYYScheduleConfiguredPlaybackSpeedRestore();
 }
@@ -4778,6 +4808,9 @@ static BOOL isGestureActive = NO;
     if (isBeginning) {
         dyyyLongPressFastSpeedActive = YES;
         dyyyLongPressLockedSpeedActive = NO;
+        DYYYResetLongPressLockGestureState();
+        dyyyLongPressLockGestureInitialY = location.y;
+        DYYYScheduleFloatSpeedButtonDisplayOverrideClear();
     } else if (isEnding) {
         isGestureActive = NO;
         currentLongPressSpeed = 0;
@@ -4821,6 +4854,10 @@ static BOOL isGestureActive = NO;
                 initialTouchY = location.y;
                 [self changeSpeed:currentLongPressSpeed];
             }
+
+            if (deltaY > threshold) {
+                dyyyLongPressLockGestureMovedDown = YES;
+            }
         }
     }
 }
@@ -4834,14 +4871,23 @@ static BOOL isGestureActive = NO;
 - (void)handleLongPressLockedDoubleSpeedChanged:(id)arg1 gesture:(UIGestureRecognizer *)gesture {
     dyyyLongPressFastSpeedActive = YES;
     dyyyLongPressLockedSpeedActive = NO;
+    DYYYUpdateLongPressLockGestureState(gesture);
     %orig(arg1, gesture);
 }
 
 - (void)handleLongPressLockedDoubleSpeedEnded:(id)arg1 gesture:(UIGestureRecognizer *)gesture {
+    DYYYUpdateLongPressLockGestureState(gesture);
+    BOOL shouldShowLockedSpeed = dyyyLongPressLockGestureMovedDown;
     %orig(arg1, gesture);
     dyyyLongPressFastSpeedActive = NO;
-    dyyyLongPressLockedSpeedActive = YES;
-    DYYYScheduleFloatSpeedButtonLongPressDisplay(DYYYLongPressPlaybackSpeed());
+    dyyyLongPressLockedSpeedActive = shouldShowLockedSpeed;
+    if (shouldShowLockedSpeed) {
+        DYYYScheduleFloatSpeedButtonLongPressDisplay(DYYYLongPressPlaybackSpeed());
+    } else {
+        DYYYScheduleFloatSpeedButtonDisplayOverrideClear();
+        DYYYScheduleConfiguredPlaybackSpeedRestore();
+    }
+    DYYYResetLongPressLockGestureState();
 }
 
 - (void)longPressSpeedControlDidChangeSpeed:(double)speed {
