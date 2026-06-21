@@ -10512,10 +10512,42 @@ static NSHashTable *processedParentViews = nil;
 %end
 
 // 底栏高度
+%hook AWENormalModeTabBarPlusButton
+
+- (void)setHidden:(BOOL)hidden {
+    BOOL hidePlus = DYYYGetBool(@"DYYYHidePlusButton");
+    %orig(hidePlus ? YES : hidden);
+
+    if (hidePlus) {
+        self.userInteractionEnabled = NO;
+    }
+}
+
+- (void)didMoveToWindow {
+    %orig;
+
+    if (self.window && DYYYGetBool(@"DYYYHidePlusButton")) {
+        self.userInteractionEnabled = NO;
+        self.hidden = YES;
+    }
+}
+
+- (void)layoutSubviews {
+    %orig;
+
+    if (DYYYGetBool(@"DYYYHidePlusButton")) {
+        self.userInteractionEnabled = NO;
+        self.hidden = YES;
+    }
+}
+
+%end
+
 %hook AWENormalModeTabBar
 
 static Class barBackgroundClass = nil;
 static Class generalButtonClass = nil;
+static Class plusContainerButtonClass = nil;
 static Class plusButtonClass = nil;
 static Class plusInnerButtonClass = nil;
 static Class tabBarButtonClass = nil;
@@ -10524,6 +10556,7 @@ static Class tabBarButtonClass = nil;
     if (self == [%c(AWENormalModeTabBar) class]) {
         barBackgroundClass = NSClassFromString(@"_UIBarBackground");
         generalButtonClass = %c(AWENormalModeTabBarGeneralButton);
+        plusContainerButtonClass = %c(AWENormalModeTabBarPlusButton);
         plusButtonClass = %c(AWENormalModeTabBarGeneralPlusButton);
         plusInnerButtonClass = %c(AWENormalModeTabBarGeneralPlusInnerButton);
         tabBarButtonClass = %c(UITabBarButton);
@@ -10588,9 +10621,11 @@ static Class tabBarButtonClass = nil;
     UIView *ipadContainerView = nil;
 
     for (UIView *subview in self.subviews) {
-        if ([subview isKindOfClass:generalButtonClass] || [subview isKindOfClass:plusButtonClass] || [subview isKindOfClass:plusInnerButtonClass]) {
+        if ([subview isKindOfClass:generalButtonClass] || [subview isKindOfClass:plusContainerButtonClass] || [subview isKindOfClass:plusButtonClass] ||
+            [subview isKindOfClass:plusInnerButtonClass]) {
             NSString *label = subview.accessibilityLabel;
-            BOOL isPlusButton = [subview isKindOfClass:plusButtonClass] || [subview isKindOfClass:plusInnerButtonClass] || [label isEqualToString:@"拍摄"];
+            BOOL isPlusButton = [subview isKindOfClass:plusContainerButtonClass] || [subview isKindOfClass:plusButtonClass] || [subview isKindOfClass:plusInnerButtonClass] ||
+                                [label isEqualToString:@"拍摄"];
             BOOL shouldHide = (isPlusButton && hidePlus) || ([label containsString:@"商城"] && hideShop) || ([label containsString:@"消息"] && hideMsg) || ([label containsString:@"朋友"] && hideFri) ||
                               ([label isEqualToString:@"我"] && hideMe);
 
@@ -10673,7 +10708,8 @@ static Class tabBarButtonClass = nil;
         // 单次遍历处理所有背景和分割线
         for (UIView *subview in self.subviews) {
             // 跳过底栏按钮
-            if ([subview isKindOfClass:generalButtonClass] || [subview isKindOfClass:plusButtonClass] || [subview isKindOfClass:plusInnerButtonClass]) {
+            if ([subview isKindOfClass:generalButtonClass] || [subview isKindOfClass:plusContainerButtonClass] || [subview isKindOfClass:plusButtonClass] ||
+                [subview isKindOfClass:plusInnerButtonClass]) {
                 continue;
             }
             // 隐藏底栏背景
@@ -10745,7 +10781,8 @@ static Class tabBarButtonClass = nil;
         for (UIView *subview in self.subviews) {
             CGFloat subviewHeight = subview.frame.size.height;
             // 跳过底栏按钮
-            if ([subview isKindOfClass:generalButtonClass] || [subview isKindOfClass:plusButtonClass] || [subview isKindOfClass:plusInnerButtonClass]) {
+            if ([subview isKindOfClass:generalButtonClass] || [subview isKindOfClass:plusContainerButtonClass] || [subview isKindOfClass:plusButtonClass] ||
+                [subview isKindOfClass:plusInnerButtonClass]) {
                 continue;
             }
             // 隐藏底栏背景

@@ -1463,7 +1463,10 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @property(nonatomic) AWEURLModel *playAddr;
 @end
 
-@interface AWENormalModeTabBarGeneralPlusButton : UIView
+@interface AWENormalModeTabBarPlusButton : UIView
+@end
+
+@interface AWENormalModeTabBarGeneralPlusButton : AWENormalModeTabBarPlusButton
 @end
 
 @interface AWEMixVideoPanelMoreView : UIView
