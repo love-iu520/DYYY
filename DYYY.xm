@@ -6227,6 +6227,28 @@ static void DYYYApplyAvatarFollowPromptSettingsWithRetry(id owner) {
 static const void *kDYYYLiveDurationViewKey = &kDYYYLiveDurationViewKey;
 static const void *kDYYYLiveDurationTimerKey = &kDYYYLiveDurationTimerKey;
 static const void *kDYYYLiveDurationRoomKey = &kDYYYLiveDurationRoomKey;
+static NSString *const kDYYYLiveDurationCenterXPercentKey = @"DYYYLiveDurationCenterXPercent";
+static NSString *const kDYYYLiveDurationCenterYPercentKey = @"DYYYLiveDurationCenterYPercent";
+static NSString *const kDYYYLiveDurationPositionLockedKey = @"DYYYLiveDurationPositionLocked";
+
+static UIEdgeInsets DYYYLiveDurationSafeInsets(UIView *root) {
+    return [root respondsToSelector:@selector(safeAreaInsets)] ? root.safeAreaInsets : UIEdgeInsetsZero;
+}
+
+static CGPoint DYYYLiveDurationClampedCenter(CGPoint center, CGSize viewSize, UIView *root) {
+    if (!root) {
+        return center;
+    }
+
+    UIEdgeInsets safeInsets = DYYYLiveDurationSafeInsets(root);
+    CGFloat halfWidth = viewSize.width / 2.0;
+    CGFloat halfHeight = viewSize.height / 2.0;
+    CGFloat minX = safeInsets.left + halfWidth + 4.0;
+    CGFloat maxX = fmax(minX, CGRectGetWidth(root.bounds) - safeInsets.right - halfWidth - 4.0);
+    CGFloat minY = safeInsets.top + halfHeight + 4.0;
+    CGFloat maxY = fmax(minY, CGRectGetHeight(root.bounds) - safeInsets.bottom - halfHeight - 4.0);
+    return CGPointMake(fmin(fmax(center.x, minX), maxX), fmin(fmax(center.y, minY), maxY));
+}
 
 @interface DYYYLiveDurationWeakViewBox : NSObject
 @property(nonatomic, weak) UIView *view;
@@ -6237,6 +6259,9 @@ static const void *kDYYYLiveDurationRoomKey = &kDYYYLiveDurationRoomKey;
 
 @interface DYYYLiveDurationView : UIView
 @property(nonatomic, strong) UILabel *durationLabel;
+@property(nonatomic, assign, getter=isDragging) BOOL dragging;
+@property(nonatomic, assign, getter=isMovementLocked) BOOL movementLocked;
+- (CGRect)frameByApplyingSavedPositionToFrame:(CGRect)frame inRoot:(UIView *)root;
 @end
 
 @implementation DYYYLiveDurationView
@@ -6244,7 +6269,7 @@ static const void *kDYYYLiveDurationRoomKey = &kDYYYLiveDurationRoomKey;
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        self.userInteractionEnabled = NO;
+        self.userInteractionEnabled = YES;
         self.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.42];
         self.layer.cornerRadius = 7.0;
         self.layer.masksToBounds = YES;
@@ -6261,6 +6286,16 @@ static const void *kDYYYLiveDurationRoomKey = &kDYYYLiveDurationRoomKey;
         _durationLabel.shadowColor = [[UIColor blackColor] colorWithAlphaComponent:0.75];
         _durationLabel.shadowOffset = CGSizeMake(0.0, 1.0);
         [self addSubview:_durationLabel];
+
+        _movementLocked = [[NSUserDefaults standardUserDefaults] boolForKey:kDYYYLiveDurationPositionLockedKey];
+
+        UILongPressGestureRecognizer *longPressGesture = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPress:)];
+        longPressGesture.minimumPressDuration = 0.5;
+        [self addGestureRecognizer:longPressGesture];
+
+        UIPanGestureRecognizer *panGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
+        [panGesture requireGestureRecognizerToFail:longPressGesture];
+        [self addGestureRecognizer:panGesture];
     }
     return self;
 }
@@ -6268,6 +6303,86 @@ static const void *kDYYYLiveDurationRoomKey = &kDYYYLiveDurationRoomKey;
 - (void)layoutSubviews {
     [super layoutSubviews];
     self.durationLabel.frame = CGRectInset(self.bounds, 7.0, 2.0);
+}
+
+- (void)handlePan:(UIPanGestureRecognizer *)gesture {
+    UIView *root = self.superview;
+    if (self.isMovementLocked || !root) {
+        return;
+    }
+
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        self.dragging = YES;
+        self.alpha = 0.8;
+    }
+
+    if (gesture.state == UIGestureRecognizerStateBegan || gesture.state == UIGestureRecognizerStateChanged) {
+        CGPoint translation = [gesture translationInView:root];
+        CGPoint newCenter = CGPointMake(self.center.x + translation.x, self.center.y + translation.y);
+        self.center = DYYYLiveDurationClampedCenter(newCenter, self.bounds.size, root);
+        [gesture setTranslation:CGPointZero inView:root];
+    }
+
+    if (gesture.state == UIGestureRecognizerStateEnded || gesture.state == UIGestureRecognizerStateCancelled || gesture.state == UIGestureRecognizerStateFailed) {
+        self.dragging = NO;
+        self.alpha = 1.0;
+        [self savePosition];
+    }
+}
+
+- (void)handleLongPress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateBegan) {
+        return;
+    }
+
+    self.movementLocked = !self.isMovementLocked;
+    [[NSUserDefaults standardUserDefaults] setBool:self.isMovementLocked forKey:kDYYYLiveDurationPositionLockedKey];
+    if (self.isMovementLocked) {
+        [self savePosition];
+    }
+
+    [DYYYUtils showToast:self.isMovementLocked ? @"开播时长位置已锁定" : @"开播时长位置已解锁"];
+    if (@available(iOS 10.0, *)) {
+        UIImpactFeedbackGenerator *generator = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+        [generator prepare];
+        [generator impactOccurred];
+    }
+}
+
+- (void)savePosition {
+    UIView *root = self.superview;
+    if (!root) {
+        return;
+    }
+
+    CGFloat rootWidth = CGRectGetWidth(root.bounds);
+    CGFloat rootHeight = CGRectGetHeight(root.bounds);
+    if (rootWidth <= 0.0 || rootHeight <= 0.0) {
+        return;
+    }
+
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setDouble:self.center.x / rootWidth forKey:kDYYYLiveDurationCenterXPercentKey];
+    [defaults setDouble:self.center.y / rootHeight forKey:kDYYYLiveDurationCenterYPercentKey];
+}
+
+- (CGRect)frameByApplyingSavedPositionToFrame:(CGRect)frame inRoot:(UIView *)root {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if (![defaults objectForKey:kDYYYLiveDurationCenterXPercentKey] || ![defaults objectForKey:kDYYYLiveDurationCenterYPercentKey]) {
+        return frame;
+    }
+
+    CGFloat rootWidth = CGRectGetWidth(root.bounds);
+    CGFloat rootHeight = CGRectGetHeight(root.bounds);
+    if (rootWidth <= 0.0 || rootHeight <= 0.0) {
+        return frame;
+    }
+
+    CGFloat centerXPercent = fmin(fmax([defaults doubleForKey:kDYYYLiveDurationCenterXPercentKey], 0.0), 1.0);
+    CGFloat centerYPercent = fmin(fmax([defaults doubleForKey:kDYYYLiveDurationCenterYPercentKey], 0.0), 1.0);
+    CGPoint center = CGPointMake(centerXPercent * rootWidth, centerYPercent * rootHeight);
+    center = DYYYLiveDurationClampedCenter(center, frame.size, root);
+    return CGRectIntegral(CGRectMake(center.x - frame.size.width / 2.0, center.y - frame.size.height / 2.0, frame.size.width, frame.size.height));
 }
 
 @end
@@ -6467,10 +6582,7 @@ static DYYYLiveDurationView *DYYYLiveDurationEnsureView(UIView *root) {
 }
 
 static CGRect DYYYLiveDurationFrameForRoot(UIView *root, id roomModel, NSString *text) {
-    UIEdgeInsets safeInsets = UIEdgeInsetsZero;
-    if ([root respondsToSelector:@selector(safeAreaInsets)]) {
-        safeInsets = root.safeAreaInsets;
-    }
+    UIEdgeInsets safeInsets = DYYYLiveDurationSafeInsets(root);
 
     CGFloat rootWidth = CGRectGetWidth(root.bounds);
     CGFloat rootHeight = CGRectGetHeight(root.bounds);
@@ -6531,9 +6643,12 @@ static void DYYYLiveDurationUpdateView(UIView *root) {
     NSString *text = DYYYLiveDurationFormatElapsed(elapsed);
     durationView = DYYYLiveDurationEnsureView(root);
     durationView.durationLabel.text = text;
-    durationView.frame = DYYYLiveDurationFrameForRoot(root, roomModel, text);
+    if (!durationView.isDragging) {
+        CGRect defaultFrame = DYYYLiveDurationFrameForRoot(root, roomModel, text);
+        durationView.frame = [durationView frameByApplyingSavedPositionToFrame:defaultFrame inRoot:root];
+        durationView.alpha = 1.0;
+    }
     durationView.hidden = NO;
-    durationView.alpha = 1.0;
     [root bringSubviewToFront:durationView];
 }
 
