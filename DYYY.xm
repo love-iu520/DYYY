@@ -8038,6 +8038,91 @@ static NSHashTable *processedParentViews = nil;
 }
 %end
 
+%hook AWEListDataController
+
+- (void)setDataSource:(NSMutableArray *)dataSource {
+    NSArray *filtered = [DYYYUtils arrayByRemovingAdvertisements:dataSource];
+    %orig(filtered);
+}
+
+- (NSMutableArray *)dataSource {
+    NSMutableArray *dataSource = %orig;
+    NSArray *filtered = [DYYYUtils arrayByRemovingAdvertisements:dataSource];
+    if (filtered != dataSource && [dataSource isKindOfClass:[NSMutableArray class]]) {
+        [dataSource setArray:filtered];
+    } else if (filtered != dataSource) {
+        return [filtered mutableCopy];
+    }
+    return dataSource;
+}
+
+- (void)setFilteredDataSource:(NSMutableArray *)filteredDataSource {
+    NSArray *filtered = [DYYYUtils arrayByRemovingAdvertisements:filteredDataSource];
+    %orig(filtered);
+}
+
+- (NSMutableArray *)filteredDataSource {
+    NSMutableArray *filteredDataSource = %orig;
+    NSArray *filtered = [DYYYUtils arrayByRemovingAdvertisements:filteredDataSource];
+    if (filtered != filteredDataSource && [filteredDataSource isKindOfClass:[NSMutableArray class]]) {
+        [filteredDataSource setArray:filtered];
+    } else if (filtered != filteredDataSource) {
+        return [filtered mutableCopy];
+    }
+    return filteredDataSource;
+}
+
+%end
+
+%hook AWEMixVideoListDataController
+
+- (void)setDataSource:(id)dataSource {
+    NSArray *filtered = [DYYYUtils arrayByRemovingAdvertisements:dataSource];
+    %orig(filtered);
+}
+
+- (id)dataSource {
+    id dataSource = %orig;
+    NSArray *filtered = [DYYYUtils arrayByRemovingAdvertisements:dataSource];
+    if (filtered != dataSource && [dataSource isKindOfClass:[NSMutableArray class]]) {
+        [dataSource setArray:filtered];
+    } else if (filtered != dataSource) {
+        return filtered;
+    }
+    return dataSource;
+}
+
+%end
+
+%hook AWEMixVideoDetailPlayListDataController
+
+- (void)setDataSource:(id)dataSource {
+    NSArray *filtered = [DYYYUtils arrayByRemovingAdvertisements:dataSource];
+    %orig(filtered);
+}
+
+%end
+
+%hook AWEMixVideoRelatedListDataController
+
+- (void)setDataSource:(id)dataSource {
+    NSArray *filtered = [DYYYUtils arrayByRemovingAdvertisements:dataSource];
+    %orig(filtered);
+}
+
+- (id)dataSource {
+    id dataSource = %orig;
+    NSArray *filtered = [DYYYUtils arrayByRemovingAdvertisements:dataSource];
+    if (filtered != dataSource && [dataSource isKindOfClass:[NSMutableArray class]]) {
+        [dataSource setArray:filtered];
+    } else if (filtered != dataSource) {
+        return filtered;
+    }
+    return dataSource;
+}
+
+%end
+
 %hook AWEHotListDataController
 
 %new
@@ -8123,6 +8208,7 @@ static NSHashTable *processedParentViews = nil;
     BOOL skipPhotoText = DYYYGetBool(@"DYYYSkipPhotoText"); // 图文过滤
     BOOL skipPhoto = DYYYGetBool(@"DYYYSkipPhoto"); // 图集过滤
     BOOL shouldDisableHDR = DYYYShouldDisableAllHDR();
+    BOOL noAds = DYYYGetBool(@"DYYYNoAds");
 
     NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
     NSTimeInterval thresholdInSeconds = MAX(daysThreshold, 0) * 86400.0;
@@ -8138,9 +8224,8 @@ static NSHashTable *processedParentViews = nil;
 
         AWEAwemeModel *m = (AWEAwemeModel *)obj;
 
-        // 1. 广告白名单
-        if ([m respondsToSelector:@selector(isAds)] && m.isAds) {
-            [baseFiltered addObject:obj];
+        // 1. 广告过滤：合集、搜索内流、分页追加等旁路也会进入此共享转换。
+        if (noAds && [DYYYUtils isAdvertisementAwemeModel:m]) {
             continue;
         }
 
@@ -8264,7 +8349,11 @@ static NSHashTable *processedParentViews = nil;
                 }
             }
         }
-        BOOL shouldFilter = [self contentFilter];
+        BOOL shouldFilter = DYYYGetBool(@"DYYYNoAds") &&
+                            ([DYYYUtils isAdvertisementAwemeModel:self] || [DYYYUtils isAdvertisementRawData:arg1]);
+        if (!shouldFilter) {
+            shouldFilter = [self contentFilter];
+        }
         if (!shouldFilter && shouldFilterOnlyHDRSource) {
             shouldFilter = YES;
         }
@@ -8382,7 +8471,7 @@ static NSHashTable *processedParentViews = nil;
     BOOL skipAIInteraction = DYYYGetBool(@"DYYYSkipAIInteraction");
     BOOL filterHDR = DYYYShouldFilterGlobalHDR();
 
-    BOOL shouldFilterAds = noAds && (self.isAds);
+    BOOL shouldFilterAds = noAds && [DYYYUtils isAdvertisementAwemeModel:self];
     BOOL shouldFilterHotSpot = skipHotSpot && self.hotSpotLynxCardModel;
     BOOL shouldFilterAllLive = skipAllLive && [self.videoFeedTag isEqualToString:@"直播中"];
     BOOL isRecommendFeed = [self.referString isEqualToString:@"homepage_hot"];
@@ -9181,7 +9270,7 @@ static NSHashTable *processedParentViews = nil;
 }
 %end
 
-// 屏蔽 AWEGeneralSearchModel 中的广告卡（强判定）
+// 屏蔽 AWEGeneralSearchModel 中的广告卡（搜索卡片、动态卡及其作品模型统一判定）
 %hook AWEGeneralSearchModel
 - (instancetype)initWithDictionary:(id)dict error:(NSError **)error {
 	id orig = %orig;
@@ -9191,8 +9280,7 @@ static NSHashTable *processedParentViews = nil;
 		return orig;
 	}
 	
-	// 强判定：检查是否为广告卡（检查 commonDynamicPatchModel.is_ad == 1）
-	if ([[orig valueForKeyPath:@"commonDynamicPatchModel.is_ad"] integerValue] == 1) {
+	if ([DYYYUtils isAdvertisementContainerModel:orig] || [DYYYUtils isAdvertisementRawData:dict]) {
 		return nil;
 	}
 	

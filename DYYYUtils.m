@@ -381,11 +381,158 @@ static BOOL DYYYUtilsWriteStaticImageToGIF(UIImage *image, NSURL *gifURL) {
 @interface DYYYUtils ()
 + (NSString *)fallbackLocationFromIPAttribution:(AWEAwemeModel *)model;
 + (NSString *)displayLocationForGeoNamesError:(NSError *)error model:(AWEAwemeModel *)model;
++ (id)dyyy_safeValueForKey:(NSString *)key fromObject:(id)object;
++ (BOOL)dyyy_objectContainsMeaningfulAdPayload:(id)object;
 @end
 
 @implementation DYYYUtils
 
 static const void *kCurrentIPRequestCityCodeKey = &kCurrentIPRequestCityCodeKey;
+
+#pragma mark - Public Model Filtering Utilities (公共模型过滤工具)
+
++ (id)dyyy_safeValueForKey:(NSString *)key fromObject:(id)object {
+    if (!object || key.length == 0) {
+        return nil;
+    }
+
+    @try {
+        return [object valueForKey:key];
+    } @catch (__unused NSException *exception) {
+        return nil;
+    }
+}
+
++ (BOOL)dyyy_objectContainsMeaningfulAdPayload:(id)object {
+    if (!object || object == [NSNull null]) {
+        return NO;
+    }
+    if ([object respondsToSelector:@selector(count)]) {
+        return [object count] > 0;
+    }
+    return YES;
+}
+
++ (BOOL)isAdvertisementAwemeModel:(id)model {
+    Class awemeModelClass = NSClassFromString(@"AWEAwemeModel");
+    if (!model || !awemeModelClass || ![model isKindOfClass:awemeModelClass]) {
+        return NO;
+    }
+
+    for (NSString *selectorName in @[ @"checkIsAd", @"isHardAdModel", @"isAds" ]) {
+        SEL selector = NSSelectorFromString(selectorName);
+        if ([model respondsToSelector:selector]) {
+            BOOL (*sendBool)(id, SEL) = (BOOL (*)(id, SEL))objc_msgSend;
+            if (sendBool(model, selector)) {
+                return YES;
+            }
+        }
+    }
+
+    for (NSString *key in @[ @"originAdInfo", @"adInfo", @"m2DataInfo" ]) {
+        id value = [self dyyy_safeValueForKey:key fromObject:model];
+        if ([self dyyy_objectContainsMeaningfulAdPayload:value]) {
+            return YES;
+        }
+    }
+
+    return NO;
+}
+
++ (BOOL)isAdvertisementContainerModel:(id)model {
+    if ([self isAdvertisementAwemeModel:model]) {
+        return YES;
+    }
+
+    Class searchModelClass = NSClassFromString(@"AWEGeneralSearchModel");
+    if (!searchModelClass || ![model isKindOfClass:searchModelClass]) {
+        return NO;
+    }
+
+    id searchAdModule = [self dyyy_safeValueForKey:@"searchAdModule" fromObject:model];
+    if ([self dyyy_objectContainsMeaningfulAdPayload:searchAdModule]) {
+        return YES;
+    }
+
+    NSString *adCardName = [self dyyy_safeValueForKey:@"adCardName" fromObject:model];
+    if ([adCardName isKindOfClass:[NSString class]] && adCardName.length > 0) {
+        return YES;
+    }
+
+    id dynamicPatch = [self dyyy_safeValueForKey:@"commonDynamicPatchModel" fromObject:model];
+    id isAdValue = [self dyyy_safeValueForKey:@"is_ad" fromObject:dynamicPatch];
+    if ([isAdValue respondsToSelector:@selector(boolValue)] && [isAdValue boolValue]) {
+        return YES;
+    }
+
+    SEL adCardTypeSelector = NSSelectorFromString(@"generalSearchAdCardTypeForWaterfall");
+    if ([model respondsToSelector:adCardTypeSelector]) {
+        NSInteger (*sendInteger)(id, SEL) = (NSInteger (*)(id, SEL))objc_msgSend;
+        if (sendInteger(model, adCardTypeSelector) > 0) {
+            return YES;
+        }
+    }
+
+    for (NSString *selectorName in @[ @"aweme", @"awemeInVideoFeed" ]) {
+        SEL selector = NSSelectorFromString(selectorName);
+        if (![model respondsToSelector:selector]) {
+            continue;
+        }
+        id (*sendObject)(id, SEL) = (id (*)(id, SEL))objc_msgSend;
+        if ([self isAdvertisementAwemeModel:sendObject(model, selector)]) {
+            return YES;
+        }
+    }
+
+    return NO;
+}
+
++ (NSArray *)arrayByRemovingAdvertisements:(id)array {
+    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYNoAds"] || ![array isKindOfClass:[NSArray class]]) {
+        return array;
+    }
+
+    NSArray *source = (NSArray *)array;
+    NSMutableArray *filtered = [NSMutableArray arrayWithCapacity:source.count];
+    for (id model in source) {
+        if (![self isAdvertisementContainerModel:model]) {
+            [filtered addObject:model];
+        }
+    }
+
+    if (filtered.count == source.count) {
+        return array;
+    }
+    return [array isKindOfClass:[NSMutableArray class]] ? filtered : [filtered copy];
+}
+
++ (BOOL)isAdvertisementRawData:(id)rawData {
+    if (![rawData isKindOfClass:[NSDictionary class]]) {
+        return NO;
+    }
+
+    NSDictionary *dictionary = (NSDictionary *)rawData;
+    for (NSString *flagKey in @[ @"is_ads", @"is_ad" ]) {
+        id value = dictionary[flagKey];
+        if ([value respondsToSelector:@selector(boolValue)] && [value boolValue]) {
+            return YES;
+        }
+    }
+
+    for (NSString *payloadKey in @[ @"aweme_raw_ad", @"raw_ad_data", @"origin_ad_info", @"ad_info" ]) {
+        if ([self dyyy_objectContainsMeaningfulAdPayload:dictionary[payloadKey]]) {
+            return YES;
+        }
+    }
+
+    for (NSString *containerKey in @[ @"aweme", @"aweme_info", @"item", @"common_dynamic_patch_model" ]) {
+        if ([self isAdvertisementRawData:dictionary[containerKey]]) {
+            return YES;
+        }
+    }
+
+    return NO;
+}
 
 static NSString *DYYYJSONStringFromObject(id object) {
     if (!object) {

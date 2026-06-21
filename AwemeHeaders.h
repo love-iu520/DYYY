@@ -138,6 +138,9 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @property(nonatomic, copy) NSString *descriptionString;
 @property(nonatomic, copy) NSString *globalVisionTitle;
 @property(nonatomic, assign) BOOL isAds;
+@property(nonatomic, strong) id originAdInfo;
+@property(nonatomic, strong) id adInfo;
+@property(nonatomic, strong) id m2DataInfo;
 @property(nonatomic, assign) BOOL isLive;
 @property(nonatomic, assign) BOOL isLivePhoto;
 @property(nonatomic, assign) BOOL isNewTextMode;  // 文字图文专有属性
@@ -162,6 +165,8 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @property(nonatomic, assign) BOOL isShowLandscapeEntryView;
 - (BOOL)isLive;
 - (BOOL)contentFilter;
+- (BOOL)checkIsAd;
+- (BOOL)isHardAdModel;
 - (BOOL)awe_enableHDR;
 - (id)awe_HDRValueFor:(long long)value enableHDR:(BOOL)enableHDR;
 - (AWESearchAwemeExtraModel *)searchExtraModel;
@@ -170,6 +175,20 @@ typedef NS_ENUM(NSUInteger, DYEdgeMode) {
 @interface AWEHotListDataController : NSObject
 - (NSNumber *)dyyy_numberValueForLowLikesFilter:(id)rawValue;
 - (NSNumber *)dyyy_resolvedDiggCountForAweme:(AWEAwemeModel *)aweme;
+@end
+
+@interface AWEListDataController : NSObject
+@property(nonatomic, strong) NSMutableArray *dataSource;
+@property(nonatomic, strong) NSMutableArray *filteredDataSource;
+@end
+
+@interface AWEMixVideoListDataController : AWEListDataController
+@end
+
+@interface AWEMixVideoDetailPlayListDataController : AWEListDataController
+@end
+
+@interface AWEMixVideoRelatedListDataController : AWEMixVideoListDataController
 @end
 
 @interface AWEFeedCommentConfigModel : NSObject
