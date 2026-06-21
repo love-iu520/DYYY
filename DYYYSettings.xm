@@ -38,6 +38,34 @@ void *kViewModelKey = &kViewModelKey;
 static id dyyyRemoteConfigChangedToken = nil;
 static char kDYYYWeatherViewGestureInstalledKey;
 static char kDYYYWeatherSubviewGestureInstalledKey;
+
+static double DYYYSpeedValueFromSettingString(NSString *speedString, double fallback) {
+    double speed = [speedString respondsToSelector:@selector(doubleValue)] ? [speedString doubleValue] : fallback;
+    if (!isfinite(speed) || speed <= 0.0) {
+        return fallback;
+    }
+    return speed;
+}
+
+static NSString *DYYYCurrentSpeedSettingsDisplayString(void) {
+    id value = [[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYSpeedSettings"];
+    if ([value isKindOfClass:[NSString class]] && [(NSString *)value length] > 0) {
+        return (NSString *)value;
+    }
+    return DYYYDefaultSpeedSettingsString();
+}
+
+static void DYYYApplySpeedSettingSelectionToFloatButton(NSString *selectedValue, double fallbackSpeed) {
+    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableFloatSpeedButton"]) {
+        return;
+    }
+
+    DYYYNormalizeSpeedSettingsForRequiredSpeeds();
+    double selectedSpeed = DYYYSpeedValueFromSettingString(selectedValue, fallbackSpeed);
+    setCurrentSpeedValue((float)selectedSpeed);
+    [FloatingSpeedButton reloadConfiguration];
+    DYYYApplyCurrentSpeedSelection();
+}
 static char kDYYYSettingsSearchCoordinatorKey;
 static BOOL DYYYBuildingSettingsSearchIndex = NO;
 static BOOL DYYYSettingsSearchIndexBuilt = NO;
@@ -1095,12 +1123,13 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
 
                 [DYYYOptionsSelectionView showWithPreferenceKey:@"DYYYDefaultSpeed"
                                                    optionsArray:speedOptions
-                                                     headerText:@"选择默认倍速"
-                                                 onPresentingVC:topView()
-                                               selectionChanged:^(NSString *selectedValue) {
-                                                 item.detail = selectedValue;
-                                                 [item refreshCell];
-                                               }];
+                                                   headerText:@"选择默认倍速"
+                                               onPresentingVC:topView()
+                                             selectionChanged:^(NSString *selectedValue) {
+                                               item.detail = selectedValue;
+                                               DYYYApplySpeedSettingSelectionToFloatButton(selectedValue, 1.0);
+                                               [item refreshCell];
+                                             }];
               };
           }
 
@@ -1113,12 +1142,13 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
 
                 [DYYYOptionsSelectionView showWithPreferenceKey:@"DYYYLongPressSpeed"
                                                    optionsArray:speedOptions
-                                                     headerText:@"选择右侧长按倍速"
-                                                 onPresentingVC:topView()
-                                               selectionChanged:^(NSString *selectedValue) {
-                                                 item.detail = selectedValue;
-                                                 [item refreshCell];
-                                               }];
+                                                   headerText:@"选择右侧长按倍速"
+                                               onPresentingVC:topView()
+                                             selectionChanged:^(NSString *selectedValue) {
+                                               item.detail = selectedValue;
+                                               DYYYApplySpeedSettingSelectionToFloatButton(selectedValue, 2.0);
+                                               [item refreshCell];
+                                             }];
               };
           }
 
@@ -3672,6 +3702,7 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
       AWESettingItemModel *speedSettingsItem = [[%c(AWESettingItemModel) alloc] init];
       speedSettingsItem.identifier = @"DYYYSpeedSettings";
       speedSettingsItem.title = @"快捷倍速数值设置";
+      speedSettingsItem.subTitle = @"需同时命中包含设置默认倍速和设置长按倍速的数值，否则默认恢复成0.75,1.0,1.25,1.5,2.0,2.5,3.0";
       speedSettingsItem.type = 0;
       speedSettingsItem.svgIconImageName = @"ic_speed_outlined_20";
       speedSettingsItem.cellType = 26;
@@ -3679,11 +3710,8 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
       speedSettingsItem.isEnable = YES;
 
       // 获取已保存的倍速数值设置
-      NSString *savedSpeedSettings = [[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYSpeedSettings"];
-      // 如果没有设置过，使用默认值
-      if (!savedSpeedSettings || savedSpeedSettings.length == 0) {
-          savedSpeedSettings = @"1.0,1.25,1.5,2.0";
-      }
+      DYYYNormalizeSpeedSettingsForRequiredSpeeds();
+      NSString *savedSpeedSettings = DYYYCurrentSpeedSettingsDisplayString();
       speedSettingsItem.detail = [NSString stringWithFormat:@"%@", savedSpeedSettings];
       speedSettingsItem.cellTappedBlock = ^{
         [DYYYSettingsHelper showTextInputAlert:@"设置快捷倍速数值"
@@ -3693,9 +3721,11 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
                                        // 保存用户输入的倍速值
                                        NSString *trimmedText = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
                                        [[NSUserDefaults standardUserDefaults] setObject:trimmedText forKey:@"DYYYSpeedSettings"];
-                                       speedSettingsItem.detail = trimmedText;
+                                       DYYYNormalizeSpeedSettingsForRequiredSpeeds();
+                                       speedSettingsItem.detail = DYYYCurrentSpeedSettingsDisplayString();
                                        [speedSettingsItem refreshCell];
                                        [FloatingSpeedButton reloadConfiguration];
+                                       DYYYApplyCurrentSpeedSelection();
                                      }
                                       onCancel:nil];
       };
@@ -3790,7 +3820,10 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
         if (originalSpeedSwitchChangedBlock) {
             originalSpeedSwitchChangedBlock();
         }
+        DYYYNormalizeSpeedSettingsForRequiredSpeeds();
+        speedSettingsItem.detail = DYYYCurrentSpeedSettingsDisplayString();
         [FloatingSpeedButton reloadConfiguration];
+        DYYYApplyCurrentSpeedSelection();
         refreshSpeedDependentItems();
       };
 

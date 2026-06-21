@@ -31,6 +31,8 @@ extern BOOL showSpeedX;
 extern CGFloat speedButtonSize;
 
 extern NSArray *getSpeedOptions(void);
+extern NSString *DYYYDefaultSpeedSettingsString(void);
+extern BOOL DYYYNormalizeSpeedSettingsForRequiredSpeeds(void);
 
 extern FloatingSpeedButton *getSpeedButton(void);
 extern void showSpeedButton(void);
@@ -45,6 +47,7 @@ extern void updateSpeedButtonUI(void);
 extern void updateSpeedButtonVisibility(void);
 extern id DYYYCurrentSpeedInteractionController(void);
 extern void DYYYRefreshFloatSpeedButton(void);
+extern void DYYYApplyCurrentSpeedSelection(void);
 
 #ifdef __cplusplus
 }

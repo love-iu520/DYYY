@@ -572,6 +572,25 @@ static void DYYYBindAndApplyCurrentPlaybackSpeed(void) {
     DYYYApplyPlaybackSpeed(currentController, DYYYConfiguredPlaybackSpeed());
 }
 
+void DYYYApplyCurrentSpeedSelection(void) {
+    void (^applyBlock)(void) = ^{
+      if (!DYYYShouldHandleSpeedFeatures()) {
+          updateSpeedButtonUI();
+          updateSpeedButtonVisibility();
+          return;
+      }
+
+      DYYYRefreshFloatSpeedButton();
+      updateSpeedButtonUI();
+      DYYYBindAndApplyCurrentPlaybackSpeed();
+    };
+    if ([NSThread isMainThread]) {
+        applyBlock();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), applyBlock);
+    }
+}
+
 static void DYYYScheduleConfiguredPlaybackSpeedRestoreAfterDelay(NSTimeInterval delay) {
     dispatch_block_t restoreBlock = ^{
       DYYYBindAndApplyCurrentPlaybackSpeed();
@@ -11481,6 +11500,17 @@ static Class tabBarButtonClass = nil;
     DYYYRestoreFloatSpeedButtonForAwemeIfNeeded(self.model);
     DYYYEnsureFloatSpeedButton(self);
     reloadClearButtonConfiguration();
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    isInPlayInteractionVC = YES;
+    dyyyCurrentSpeedAweme = self.model;
+    DYYYEnsureFloatSpeedButton(self);
+    reloadClearButtonConfiguration();
+    dispatch_async(dispatch_get_main_queue(), ^{
+      DYYYEnsureFloatSpeedButton(self);
+    });
 }
 
 - (void)viewDidLayoutSubviews {
