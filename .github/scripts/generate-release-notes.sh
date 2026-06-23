@@ -554,7 +554,7 @@ while IFS=$'\t' read -r hash subject commit_type; do
 done < "$records_file"
 
 cat > "$notes_file" <<EOF
-# ${release_title} 更新日志
+## ${release_title} 更新日志
 EOF
 
 append_section() {
@@ -562,7 +562,7 @@ append_section() {
     local section_file=$2
 
     if [[ -s "$section_file" ]]; then
-        printf '\n## %s\n\n' "$title" >> "$notes_file"
+        printf '\n### %s\n\n' "$title" >> "$notes_file"
         cat "$section_file" >> "$notes_file"
     fi
 }
