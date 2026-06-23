@@ -20,6 +20,8 @@ on:
       - 'Makefile'
       - 'Resources/**'
       - 'layout/**'
+      - '.github/scripts/**'
+      - '.github/workflows/**'
   workflow_dispatch:
     inputs:
       scheme:
