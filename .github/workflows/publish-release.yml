@@ -147,9 +147,10 @@ jobs:
             echo "Unable to read package version from ${SOURCE_HEAD_SHA}:control" >&2
             exit 1
           fi
+          release_name="DYYY_${version}#${BUILD_RUN_NUMBER}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=DYYY_${version}-build.${BUILD_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
-          echo "title=DYYY_${version}#${BUILD_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "tag=$release_name" >> "$GITHUB_OUTPUT"
+          echo "title=$release_name" >> "$GITHUB_OUTPUT"
 
       - name: Verify release assets
         shell: bash
@@ -239,6 +240,8 @@ jobs:
           steps.release_target.outputs.should_publish == 'true'
         env:
           RELEASE_HEAD_SHA: ${{ needs.source.outputs.head_sha }}
+          RELEASE_TITLE: ${{ steps.release.outputs.title }}
+          GH_TOKEN: ${{ github.token }}
         run: .github/scripts/generate-release-notes.sh
 
       - name: Publish GitHub Release
