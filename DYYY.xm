@@ -131,6 +131,50 @@ static void DYYYForceHideBottomTabBarItemIfNeeded(UIView *view) {
     view.hidden = YES;
 }
 
+static BOOL DYYYTabBarSubviewShouldFollowItemWidth(UIView *view, CGFloat itemWidth) {
+    if (!view || [view isKindOfClass:[UILabel class]] || [view isKindOfClass:[UIImageView class]] || [view isKindOfClass:[UIControl class]]) {
+        return NO;
+    }
+
+    if (DYYYViewIsKindOfClassNamed(view, @"DUXBadge")) {
+        return NO;
+    }
+
+    if (DYYYViewIsKindOfClassNamed(view, @"AWENormalModeTabBarBadgeContainerView")) {
+        return YES;
+    }
+
+    CGFloat viewWidth = CGRectGetWidth(view.bounds);
+    CGFloat minFollowWidth = MIN(itemWidth * 0.5, 120.0);
+    return view.subviews.count > 0 && viewWidth >= minFollowWidth;
+}
+
+static void DYYYRelayoutBottomTabBarItem(UIView *item) {
+    if (!item || item.hidden || CGRectGetWidth(item.bounds) <= 0.0 || CGRectGetHeight(item.bounds) <= 0.0) {
+        return;
+    }
+
+    CGFloat itemWidth = CGRectGetWidth(item.bounds);
+    for (UIView *subview in [item.subviews copy]) {
+        if (!DYYYTabBarSubviewShouldFollowItemWidth(subview, itemWidth)) {
+            continue;
+        }
+
+        CGRect frame = subview.frame;
+        if (CGRectGetHeight(frame) <= 0.0 || fabs(CGRectGetWidth(frame) - itemWidth) <= 0.5) {
+            continue;
+        }
+
+        frame.origin.x = 0.0;
+        frame.size.width = itemWidth;
+        subview.frame = frame;
+        [subview setNeedsLayout];
+        [subview layoutIfNeeded];
+    }
+
+    [item setNeedsLayout];
+}
+
 static NSString *DYYYCustomAssetsDirectory(void) {
     static NSString *customDirectory = nil;
     static dispatch_once_t onceToken;
@@ -10745,6 +10789,7 @@ static Class tabBarButtonClass = nil;
     for (NSInteger i = 0; i < visibleButtons.count; i++) {
         UIView *button = visibleButtons[i];
         button.frame = CGRectMake(offsetX + i * buttonWidth, button.frame.origin.y, buttonWidth, button.frame.size.height);
+        DYYYRelayoutBottomTabBarItem(button);
     }
 
     // 禁用首页刷新功能
