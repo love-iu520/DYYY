@@ -99,6 +99,38 @@ static NSDictionary<NSString *, NSString *> *DYYYTopTabTitleMapping(void) {
     return cachedMapping;
 }
 
+static BOOL DYYYViewIsKindOfClassNamed(UIView *view, NSString *className) {
+    Class targetClass = NSClassFromString(className);
+    return targetClass && [view isKindOfClass:targetClass];
+}
+
+static BOOL DYYYTabBarLabelContains(NSString *label, NSString *keyword) {
+    return label.length > 0 && [label containsString:keyword];
+}
+
+static BOOL DYYYShouldHideBottomTabBarItem(UIView *view) {
+    if (!view) {
+        return NO;
+    }
+
+    NSString *label = [view.accessibilityLabel stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    BOOL isPlusButton = DYYYViewIsKindOfClassNamed(view, @"AWENormalModeTabBarPlusButton") || DYYYViewIsKindOfClassNamed(view, @"AWENormalModeTabBarGeneralPlusButton") ||
+                        DYYYViewIsKindOfClassNamed(view, @"AWENormalModeTabBarGeneralPlusInnerButton") || [label isEqualToString:@"拍摄"] || DYYYTabBarLabelContains(label, @"拍摄");
+
+    return (isPlusButton && DYYYGetBool(@"DYYYHidePlusButton")) || (DYYYTabBarLabelContains(label, @"商城") && DYYYGetBool(@"DYYYHideShopButton")) ||
+           (DYYYTabBarLabelContains(label, @"消息") && DYYYGetBool(@"DYYYHideMessageButton")) || (DYYYTabBarLabelContains(label, @"朋友") && DYYYGetBool(@"DYYYHideFriendsButton")) ||
+           (DYYYTabBarLabelContains(label, @"我") && DYYYGetBool(@"DYYYHideMyButton"));
+}
+
+static void DYYYForceHideBottomTabBarItemIfNeeded(UIView *view) {
+    if (!DYYYShouldHideBottomTabBarItem(view)) {
+        return;
+    }
+
+    view.userInteractionEnabled = NO;
+    view.hidden = YES;
+}
+
 static NSString *DYYYCustomAssetsDirectory(void) {
     static NSString *customDirectory = nil;
     static dispatch_once_t onceToken;
@@ -10580,10 +10612,10 @@ static NSHashTable *processedParentViews = nil;
 %hook AWENormalModeTabBarPlusButton
 
 - (void)setHidden:(BOOL)hidden {
-    BOOL hidePlus = DYYYGetBool(@"DYYYHidePlusButton");
-    %orig(hidePlus ? YES : hidden);
+    BOOL shouldHide = DYYYShouldHideBottomTabBarItem(self);
+    %orig(shouldHide ? YES : hidden);
 
-    if (hidePlus) {
+    if (shouldHide) {
         self.userInteractionEnabled = NO;
     }
 }
@@ -10591,19 +10623,15 @@ static NSHashTable *processedParentViews = nil;
 - (void)didMoveToWindow {
     %orig;
 
-    if (self.window && DYYYGetBool(@"DYYYHidePlusButton")) {
-        self.userInteractionEnabled = NO;
-        self.hidden = YES;
+    if (self.window) {
+        DYYYForceHideBottomTabBarItemIfNeeded(self);
     }
 }
 
 - (void)layoutSubviews {
     %orig;
 
-    if (DYYYGetBool(@"DYYYHidePlusButton")) {
-        self.userInteractionEnabled = NO;
-        self.hidden = YES;
-    }
+    DYYYForceHideBottomTabBarItemIfNeeded(self);
 }
 
 %end
@@ -10675,11 +10703,6 @@ static Class tabBarButtonClass = nil;
         NSLog(@"[DYYY] layoutSubviews: gCurrentTabBarHeight fallback synced to %.1f.", gCurrentTabBarHeight);
     }
 
-    BOOL hideShop = DYYYGetBool(@"DYYYHideShopButton");
-    BOOL hideMsg = DYYYGetBool(@"DYYYHideMessageButton");
-    BOOL hideFri = DYYYGetBool(@"DYYYHideFriendsButton");
-    BOOL hideMe = DYYYGetBool(@"DYYYHideMyButton");
-    BOOL hidePlus = DYYYGetBool(@"DYYYHidePlusButton");
     BOOL isPad = (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad);
 
     NSMutableArray *visibleButtons = [NSMutableArray array];
@@ -10688,11 +10711,7 @@ static Class tabBarButtonClass = nil;
     for (UIView *subview in self.subviews) {
         if ([subview isKindOfClass:generalButtonClass] || [subview isKindOfClass:plusContainerButtonClass] || [subview isKindOfClass:plusButtonClass] ||
             [subview isKindOfClass:plusInnerButtonClass]) {
-            NSString *label = subview.accessibilityLabel;
-            BOOL isPlusButton = [subview isKindOfClass:plusContainerButtonClass] || [subview isKindOfClass:plusButtonClass] || [subview isKindOfClass:plusInnerButtonClass] ||
-                                [label isEqualToString:@"拍摄"];
-            BOOL shouldHide = (isPlusButton && hidePlus) || ([label containsString:@"商城"] && hideShop) || ([label containsString:@"消息"] && hideMsg) || ([label containsString:@"朋友"] && hideFri) ||
-                              ([label isEqualToString:@"我"] && hideMe);
+            BOOL shouldHide = DYYYShouldHideBottomTabBarItem(subview);
 
             subview.userInteractionEnabled = !shouldHide;
             subview.hidden = shouldHide;
@@ -10917,6 +10936,29 @@ static Class tabBarButtonClass = nil;
 
 // 禁用点击首页刷新
 %hook AWENormalModeTabBarGeneralButton
+
+- (void)setHidden:(BOOL)hidden {
+    BOOL shouldHide = DYYYShouldHideBottomTabBarItem(self);
+    %orig(shouldHide ? YES : hidden);
+
+    if (shouldHide) {
+        self.userInteractionEnabled = NO;
+    }
+}
+
+- (void)didMoveToWindow {
+    %orig;
+
+    if (self.window) {
+        DYYYForceHideBottomTabBarItemIfNeeded(self);
+    }
+}
+
+- (void)layoutSubviews {
+    %orig;
+
+    DYYYForceHideBottomTabBarItemIfNeeded(self);
+}
 
 - (BOOL)enableRefresh {
     if ([self.accessibilityLabel isEqualToString:@"首页"]) {
