@@ -122,6 +122,52 @@ static BOOL DYYYShouldHideBottomTabBarItem(UIView *view) {
            (DYYYTabBarLabelContains(label, @"我") && DYYYGetBool(@"DYYYHideMyButton"));
 }
 
+static NSString *DYYYBottomTabBarItemIdentity(UIView *view) {
+    if (!view) {
+        return nil;
+    }
+
+    NSString *label = [view.accessibilityLabel stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    BOOL isPlusButton = DYYYViewIsKindOfClassNamed(view, @"AWENormalModeTabBarPlusButton") || DYYYViewIsKindOfClassNamed(view, @"AWENormalModeTabBarGeneralPlusButton") ||
+                        DYYYViewIsKindOfClassNamed(view, @"AWENormalModeTabBarGeneralPlusInnerButton") || [label isEqualToString:@"拍摄"] || DYYYTabBarLabelContains(label, @"拍摄");
+
+    if (isPlusButton) {
+        return @"plus";
+    }
+    if (DYYYTabBarLabelContains(label, @"商城")) {
+        return @"shop";
+    }
+    if (DYYYTabBarLabelContains(label, @"消息")) {
+        return @"message";
+    }
+    if (DYYYTabBarLabelContains(label, @"朋友")) {
+        return @"friends";
+    }
+    if (DYYYTabBarLabelContains(label, @"我")) {
+        return @"me";
+    }
+    if (DYYYTabBarLabelContains(label, @"首页")) {
+        return @"home";
+    }
+
+    return label.length > 0 ? label : nil;
+}
+
+static BOOL DYYYBottomTabBarItemsContainIdentity(NSArray<UIView *> *items, NSString *identity) {
+    if (identity.length == 0) {
+        return NO;
+    }
+
+    for (UIView *item in items) {
+        NSString *currentIdentity = DYYYBottomTabBarItemIdentity(item);
+        if ([currentIdentity isEqualToString:identity]) {
+            return YES;
+        }
+    }
+
+    return NO;
+}
+
 static void DYYYForceHideBottomTabBarItemIfNeeded(UIView *view) {
     if (!DYYYShouldHideBottomTabBarItem(view)) {
         return;
@@ -10688,6 +10734,7 @@ static Class plusContainerButtonClass = nil;
 static Class plusButtonClass = nil;
 static Class plusInnerButtonClass = nil;
 static Class tabBarButtonClass = nil;
+static char kDYYYTabBarDelayedRelayoutCountKey;
 
 + (void)initialize {
     if (self == [%c(AWENormalModeTabBar) class]) {
@@ -10750,6 +10797,7 @@ static Class tabBarButtonClass = nil;
     BOOL isPad = (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad);
 
     NSMutableArray *visibleButtons = [NSMutableArray array];
+    NSMutableArray *fallbackButtons = [NSMutableArray array];
     UIView *ipadContainerView = nil;
 
     for (UIView *subview in self.subviews) {
@@ -10764,10 +10812,25 @@ static Class tabBarButtonClass = nil;
                 [visibleButtons addObject:subview];
             }
         } else if ([subview isKindOfClass:tabBarButtonClass]) {
-            subview.userInteractionEnabled = NO;
-            subview.hidden = YES;
+            BOOL shouldHide = DYYYShouldHideBottomTabBarItem(subview);
+            subview.userInteractionEnabled = !shouldHide;
+            subview.hidden = shouldHide;
+
+            if (!shouldHide) {
+                [fallbackButtons addObject:subview];
+            }
         } else if (isPad && !ipadContainerView && [subview isMemberOfClass:UIView.class] && fabs(subview.frame.size.width - self.bounds.size.width) > 0.1) {
             ipadContainerView = subview;
+        }
+    }
+
+    for (UIView *fallbackButton in fallbackButtons) {
+        NSString *identity = DYYYBottomTabBarItemIdentity(fallbackButton);
+        if (identity.length > 0 && !DYYYBottomTabBarItemsContainIdentity(visibleButtons, identity)) {
+            [visibleButtons addObject:fallbackButton];
+        } else {
+            fallbackButton.userInteractionEnabled = NO;
+            fallbackButton.hidden = YES;
         }
     }
 
@@ -10790,6 +10853,15 @@ static Class tabBarButtonClass = nil;
         UIView *button = visibleButtons[i];
         button.frame = CGRectMake(offsetX + i * buttonWidth, button.frame.origin.y, buttonWidth, button.frame.size.height);
         DYYYRelayoutBottomTabBarItem(button);
+    }
+
+    NSNumber *delayedRelayoutCount = objc_getAssociatedObject(self, &kDYYYTabBarDelayedRelayoutCountKey);
+    if (delayedRelayoutCount.unsignedIntegerValue < 3) {
+        objc_setAssociatedObject(self, &kDYYYTabBarDelayedRelayoutCountKey, @(delayedRelayoutCount.unsignedIntegerValue + 1), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+          [self setNeedsLayout];
+          [self layoutIfNeeded];
+        });
     }
 
     // 禁用首页刷新功能
